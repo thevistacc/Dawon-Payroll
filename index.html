@@ -731,18 +731,22 @@ async function loadUserRole(userId){
   try{
     const {data,error}=await getSupa()
       .from('user_roles').select('role,dept').eq('user_id',userId).single();
-    if(!error&&data){
+    if(error){
+      console.warn('loadUserRole error:', error.code, error.message);
+      // PGRST116 = no rows found (not assigned yet) → viewer
+      _userRole='viewer'; _userDept=null;
+    } else if(data){
       _userRole=data.role;
       _userDept=data.dept||null;
-    } else {
-      // No role assigned → default viewer, all depts
-      _userRole='viewer';
-      _userDept=null;
+      console.log('✓ Role loaded:', _userRole, 'Dept:', _userDept||'ALL');
     }
   }catch(e){
+    console.error('loadUserRole exception:', e.message);
     _userRole='viewer'; _userDept=null;
   }
-  console.log('Role:', _userRole, 'Dept:', _userDept||'ALL');
+  // Show role in UI regardless
+  const chip=document.getElementById('roleChip');
+  if(chip){ chip.textContent=({admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer')+(_userDept&&!isAdmin()?' · '+_userDept:''); }
 }
 
 function applyRoleUI(){
