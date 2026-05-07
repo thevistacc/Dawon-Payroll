@@ -665,16 +665,18 @@ function setSyncState(state){ // 'synced' | 'syncing' | 'error'
 
 // ── AUTH ──
 async function doLogin(){
+  const errEl=document.getElementById('loginErr');
+  const btn=document.getElementById('loginBtn');
+
   // Guard: Supabase not configured
   if(SUPA_URL==='YOUR_SUPABASE_URL'){
-    alert('Supabase is not configured yet.\nOpen dawon_payroll.html in a text editor and set SUPA_URL and SUPA_KEY.\nSee SUPABASE_SETUP.md for instructions.');
+    errEl.innerHTML='⚠ Supabase not configured.<br>Open the HTML file and set <b>SUPA_URL</b> and <b>SUPA_KEY</b>.';
+    errEl.style.display='';
     return;
   }
 
   const email=document.getElementById('loginEmail').value.trim();
   const pw=document.getElementById('loginPw').value;
-  const errEl=document.getElementById('loginErr');
-  const btn=document.getElementById('loginBtn');
 
   if(!email||!pw){
     errEl.textContent='Please enter your email and password.';
