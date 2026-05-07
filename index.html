@@ -240,6 +240,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <div class="nav-tab active" onclick="goPage('emp')">Employee Management</div>
       <div class="nav-tab" onclick="goPage('att')">Attendance</div>
       <div class="nav-tab" onclick="goPage('pay')">Payroll</div>
+      <div class="nav-tab" onclick="goPage('users')" id="usersTab" style="display:none">👥 Users</div>
     </div>
     <div class="nav-right" style="display:flex;align-items:center;gap:12px">
     <span id="syncIndicator" style="font-size:11px;color:var(--text3)">
@@ -447,6 +448,40 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
 </div>
 
 <!-- ═══════════════════════════════════════════
+     PAGE 4: USER MANAGEMENT (Admin only)
+═══════════════════════════════════════════ -->
+<div class="page" id="page-users">
+  <div class="section-head">
+    <div>
+      <div class="section-title">User Management</div>
+      <div class="section-sub">Assign roles and department access for each team member</div>
+    </div>
+    <button class="btn primary" onclick="openAddUserRole()">+ Assign Role</button>
+  </div>
+  <div class="metrics" id="users-metrics"></div>
+  <div class="tbl-wrap">
+    <div class="tbl-scroll">
+    <table>
+      <thead><tr>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Department</th>
+        <th>Last Updated</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="usersBody"><tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Loading…</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+  <div style="margin-top:16px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text2);line-height:1.8">
+    <b>Role permissions:</b><br>
+    🔴 <b>Admin</b> — All departments, all features (add/delete employees, manage users)<br>
+    🟡 <b>Manager</b> — Own department only: upload attendance, edit employees, view payroll<br>
+    🔵 <b>Viewer</b> — Own department only: read-only access, no payroll tab
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
      MODALS
 ═══════════════════════════════════════════ -->
 
@@ -584,11 +619,34 @@ let curPayYr=2026, curPayMo=4, curPayHalf=2;
 // ═══════════════════════════════════════
 // SUPABASE CONFIG — replace with your values
 // ═══════════════════════════════════════
-const SUPA_URL = 'https://sapkosdakxgfcbdhtrtx.supabase.co';       // e.g. https://xxxx.supabase.co
+const SUPA_URL = 'sapkosdakxgfcbdhtrtx.supabase.co';       // e.g. https://xxxx.supabase.co
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNhcGtvc2Rha3hnZmNiZGh0cnR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwODQ3NzMsImV4cCI6MjA5MzY2MDc3M30.u8aE4V3LFpfAT5d2IcoyxohiZK7vvrx6-YzszKPKn6I';  // anon/public key from Settings → API
 
 let _supa = null;
 let _currentUser = null;
+let _userRole = null;   // 'admin' | 'manager' | 'viewer'
+let _userDept = null;   // null = all depts (admin), string = specific dept
+
+// Role helpers
+// Admin  → all depts, all permissions
+// Manager → own dept only, all permissions within dept
+// Viewer  → own dept only, read-only
+
+function isAdmin(){        return _userRole==='admin'; }
+function isManager(){      return _userRole==='manager'; }
+function isViewer(){       return _userRole==='viewer'||!_userRole; }
+
+function canEdit(){        return _userRole==='admin'||_userRole==='manager'; }
+function canViewPayroll(){ return _userRole==='admin'||_userRole==='manager'; }
+function canDeletePeriod(){ return _userRole==='admin'; }
+function canAddDeleteEmp(){ return _userRole==='admin'; }
+
+// Dept filter: admin sees all, manager/viewer see only their dept
+function inMyDept(dept){   return isAdmin() || _userDept===dept; }
+function deptFilter(arr, deptKey){
+  if(isAdmin()) return arr;
+  return arr.filter(function(e){ return e[deptKey||'dept']===_userDept; });
+}
 
 function getSupa(){
   if(!_supa && typeof supabase !== 'undefined'){
@@ -654,17 +712,239 @@ async function onSignedIn(user){
   if(badge){ badge.style.display='flex'; }
   if(av) av.textContent=(user.email||'?')[0].toUpperCase();
   if(em) em.textContent=user.email||'';
+
+  // Load user role
+  await loadUserRole(user.id);
+
   await loadEmployees();
   await loadAttStore();
   initDepts();
   renderEmp();
   onPayPeriodChange();
-  // Subscribe to realtime changes
+  applyRoleUI();
   subscribeRealtime();
 }
 
+async function loadUserRole(userId){
+  try{
+    const {data,error}=await getSupa()
+      .from('user_roles').select('role,dept').eq('user_id',userId).single();
+    if(!error&&data){
+      _userRole=data.role;
+      _userDept=data.dept||null;
+    } else {
+      // No role assigned → default viewer, all depts
+      _userRole='viewer';
+      _userDept=null;
+    }
+  }catch(e){
+    _userRole='viewer'; _userDept=null;
+  }
+  console.log('Role:', _userRole, 'Dept:', _userDept||'ALL');
+}
+
+function applyRoleUI(){
+  const admin = isAdmin();
+  const edit  = canEdit();       // admin + manager
+  const pay   = canViewPayroll(); // admin + manager
+
+  // ── Employee page ──
+  // Add employee: admin only
+  const addEmpBtn=document.querySelector('[onclick="openEmpAdd()"]');
+  if(addEmpBtn) addEmpBtn.style.display=admin?'':'none';
+
+  // Upload employee excel: admin only
+  const empXlsBtn=document.getElementById('empXlsInput');
+  if(empXlsBtn && empXlsBtn.previousElementSibling){
+    empXlsBtn.previousElementSibling.style.display=admin?'':'none';
+  }
+
+  // ── Attendance page ──
+  // Upload excel: admin + manager
+  const xlsUpBtn=document.getElementById('xlsUploadInput');
+  if(xlsUpBtn&&xlsUpBtn.previousElementSibling)
+    xlsUpBtn.previousElementSibling.style.display=edit?'':'none';
+  // Add entry: admin + manager
+  const addEntryBtn=document.querySelector('[onclick="openAttInput()"]');
+  if(addEntryBtn) addEntryBtn.style.display=edit?'':'none';
+  // Delete period: admin only
+  const delPeriodBtn=document.querySelector('[onclick="deleteAttPeriod()"]');
+  if(delPeriodBtn) delPeriodBtn.style.display=admin?'':'none';
+
+  // ── Payroll tab ──
+  // Visible only for admin + manager
+  const payTab=document.querySelectorAll('.nav-tab')[2];
+  if(payTab){
+    payTab.style.display=pay?'':'none';
+    payTab.title=pay?'':'Payroll access requires Admin or Manager role';
+  }
+
+  // ── Users tab: admin only ──
+  const usersTab=document.getElementById('usersTab');
+  if(usersTab) usersTab.style.display=admin?'':'none';
+
+  // ── Role badge ──
+  const badge=document.getElementById('userBadge');
+  if(badge&&!document.getElementById('roleChip')){
+    const chip=document.createElement('span');
+    chip.id='roleChip';
+    chip.style.cssText='font-size:10px;background:var(--surface2);border-radius:3px;padding:1px 6px;color:var(--text2);margin-left:2px';
+    const roleLabel={admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer';
+    chip.textContent=roleLabel+((_userDept&&!admin)?' · '+_userDept:'');
+    badge.appendChild(chip);
+  }
+}
+
 function showUserMenu(){
-  if(confirm('Sign out?')) getSupa().auth.signOut().then(()=>location.reload());
+  const items=['Sign Out'];
+  if(isAdmin()) items.unshift('Manage User Roles');
+  const choice=prompt(
+    'User: '+(_currentUser&&_currentUser.email||'')+
+    '\nRole: '+(_userRole||'viewer')+(_userDept?' ('+_userDept+')':' (All Depts)')+
+    '\n\n1. Sign Out'+(isAdmin()?'\n2. Manage User Roles':'')+
+    '\n\nEnter number:'
+  );
+  if(choice==='1') getSupa().auth.signOut().then(()=>location.reload());
+  if(choice==='2'&&isAdmin()) goPage('users');
+}
+
+async function openRoleManager(){
+  goPage('users');
+}
+
+// ─── USER MANAGEMENT PAGE ───
+let _allUsers = [];   // [{id, email, role, dept, updated_at}]
+let _editingUserId = null;
+
+async function renderUsersPage(){
+  const tbody=document.getElementById('usersBody');
+  if(!tbody) return;
+  tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Loading…</td></tr>';
+
+  try{
+    // Fetch roles
+    const {data:roles,error:rErr}=await getSupa().from('user_roles').select('user_id,role,dept,updated_at');
+    if(rErr) throw rErr;
+
+    // Fetch all auth users via admin API (available to authenticated users via RPC workaround)
+    // Since client-side can't list all users, we'll show user_id + allow manual email entry
+    const roleMap={};
+    (roles||[]).forEach(function(r){ roleMap[r.user_id]=r; });
+
+    _allUsers=roles||[];
+
+    // Metrics
+    const adminCount=(roles||[]).filter(function(r){return r.role==='admin';}).length;
+    const mgrCount=(roles||[]).filter(function(r){return r.role==='manager';}).length;
+    const viewerCount=(roles||[]).filter(function(r){return r.role==='viewer';}).length;
+    document.getElementById('users-metrics').innerHTML=
+      '<div class="metric"><div class="metric-lbl">Total Assigned</div><div class="metric-val">'+(roles||[]).length+'</div></div>'+
+      '<div class="metric"><div class="metric-lbl">Admins</div><div class="metric-val r">'+adminCount+'</div></div>'+
+      '<div class="metric"><div class="metric-lbl">Managers</div><div class="metric-val a">'+mgrCount+'</div></div>'+
+      '<div class="metric"><div class="metric-lbl">Viewers</div><div class="metric-val b">'+viewerCount+'</div></div>';
+
+    if(!roles||roles.length===0){
+      tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">No roles assigned yet. Click "+ Assign Role" to add.</td></tr>';
+      return;
+    }
+
+    const roleColors={admin:'color:var(--red-text)',manager:'color:var(--amber-text)',viewer:'color:var(--blue-text)'};
+    const roleLabels={admin:'🔴 Admin',manager:'🟡 Manager',viewer:'🔵 Viewer'};
+    tbody.innerHTML=roles.map(function(r){
+      const updated=r.updated_at?new Date(r.updated_at).toLocaleDateString('en-PH'):'—';
+      const isSelf=_currentUser&&r.user_id===_currentUser.id;
+      return '<tr>'
+        +'<td class="mono dim" style="font-size:11px">'+r.user_id.slice(0,12)+'…'+(isSelf?' <span style="font-size:10px;background:var(--green-bg);color:var(--green-text);border-radius:3px;padding:1px 5px">you</span>':'')+'</td>'
+        +'<td style="font-weight:500;'+roleColors[r.role]+'">'+roleLabels[r.role]+'</td>'
+        +'<td class="dim">'+(r.dept||'<span style="color:var(--text3)">All Departments</span>')+'</td>'
+        +'<td class="dim">'+updated+'</td>'
+        +'<td><button class="btn sm" data-uid="'+r.user_id+'" data-role="'+r.role+'" data-dept="'+(r.dept||'')+'" onclick="openEditUserRole(this.dataset.uid,this.dataset.role,this.dataset.dept)">'+(isSelf?'Edit (you)':'Edit')+'</button></td>'
+        +'</tr>';
+    }).join('');
+  }catch(err){
+    tbody.innerHTML='<tr><td colspan="5" style="color:var(--red);padding:16px">Error: '+err.message+'</td></tr>';
+  }
+}
+
+function openAddUserRole(){
+  _editingUserId=null;
+  document.getElementById('userRoleModalTitle').textContent='Assign Role to User';
+  document.getElementById('ur_email').value='';
+  document.getElementById('ur_email').readOnly=false;
+  document.getElementById('ur_email').placeholder='Paste user UUID from Supabase → Auth → Users';
+  document.getElementById('ur_role').value='viewer';
+  document.getElementById('ur_remove_btn').style.display='none';
+  onRoleSelectChange();
+  populateDeptSelect();
+  document.getElementById('userRoleModal').style.display='flex';
+}
+
+function openEditUserRole(userId, role, dept){
+  _editingUserId=userId;
+  document.getElementById('userRoleModalTitle').textContent='Edit Role';
+  document.getElementById('ur_email').value=userId;
+  document.getElementById('ur_email').readOnly=true;
+  document.getElementById('ur_role').value=role;
+  document.getElementById('ur_remove_btn').style.display='';
+  onRoleSelectChange();
+  populateDeptSelect();
+  setTimeout(function(){ document.getElementById('ur_dept').value=dept||''; },50);
+  document.getElementById('userRoleModal').style.display='flex';
+}
+
+function onRoleSelectChange(){
+  const role=document.getElementById('ur_role').value;
+  document.getElementById('ur_dept_field').style.display=role==='admin'?'none':'';
+  document.getElementById('ur_admin_note').style.display=role==='admin'?'':'none';
+}
+
+function populateDeptSelect(){
+  const sel=document.getElementById('ur_dept');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">Select department…</option>';
+  const depts=[...new Set(employees.map(function(e){return e.dept;}))].sort();
+  depts.forEach(function(d){
+    const o=document.createElement('option');
+    o.value=d; o.textContent=d;
+    if(d===cur) o.selected=true;
+    sel.appendChild(o);
+  });
+}
+
+async function saveUserRole(){
+  const userId=document.getElementById('ur_email').value.trim();
+  const role=document.getElementById('ur_role').value;
+  const dept=role==='admin'?null:(document.getElementById('ur_dept').value||null);
+
+  if(!userId){ alert('Please enter a User ID.'); return; }
+  if(role!=='admin'&&!dept){ alert('Please select a department for Manager/Viewer roles.'); return; }
+
+  try{
+    const {error}=await getSupa().from('user_roles').upsert(
+      {user_id:userId, role:role, dept:dept, updated_at:new Date().toISOString()},
+      {onConflict:'user_id'}
+    );
+    if(error) throw error;
+    document.getElementById('userRoleModal').style.display='none';
+    showToast('✓ Role saved — '+role+(dept?' ('+dept+')':''),'success');
+    renderUsersPage();
+  }catch(err){
+    alert('Error saving role: '+err.message);
+  }
+}
+
+async function removeUserRole(){
+  if(!_editingUserId) return;
+  if(!confirm('Remove role for this user?')) return;
+  try{
+    const {error}=await getSupa().from('user_roles').delete().eq('user_id',_editingUserId);
+    if(error) throw error;
+    document.getElementById('userRoleModal').style.display='none';
+    showToast('Role removed','info');
+    renderUsersPage();
+  }catch(err){
+    alert('Error: '+err.message);
+  }
 }
 
 // ── REALTIME SYNC ──
@@ -754,6 +1034,7 @@ async function loadAttStore(){
 }
 
 async function saveAttStore(){
+  if(!canEdit()){ showToast('Permission denied: Manager or Admin role required.','warn'); return; }
   setSyncState('syncing');
   // Save each period key separately for efficient realtime updates
   const periods=Object.keys(attStore).filter(function(k){ return /^\d{4}-\d+-\d+$/.test(k); });
@@ -1001,12 +1282,18 @@ function initDepts(){
 // PAGE NAVIGATION
 // ═══════════════════════════════════════
 function goPage(p){
+  if(p==='users'&&!isAdmin()){ showToast('Admin access required.','warn'); return; }
+  if(p==='pay'&&!canViewPayroll()){ showToast('Manager or Admin access required.','warn'); return; }
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(x=>x.classList.remove('active'));
-  document.getElementById('page-'+p).classList.add('active');
-  document.querySelectorAll('.nav-tab')[p==='emp'?0:p==='att'?1:2].classList.add('active');
+  const pageEl=document.getElementById('page-'+p);
+  if(pageEl) pageEl.classList.add('active');
+  const tabIdx={emp:0,att:1,pay:2,users:3}[p];
+  const tabs=document.querySelectorAll('.nav-tab');
+  if(tabs[tabIdx]) tabs[tabIdx].classList.add('active');
   if(p==='att'){ document.getElementById('attDateHeader').dataset.built=''; renderAtt(); }
   if(p==='pay') renderPay();
+  if(p==='users') renderUsersPage();
 }
 
 // ═══════════════════════════════════════
@@ -1018,6 +1305,8 @@ function getEmpFiltered(){
   const type=document.getElementById('empType').value;
   const sort=document.getElementById('empSort').value;
   let d=[...employees];
+  // Dept-based access: admin=all, manager/viewer=own dept
+  d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
   if(type) d=d.filter(e=>e.type===type);
   if(q) d=d.filter(e=>e.name.toLowerCase().includes(q)||e.id.toLowerCase().includes(q)||String(e.no).includes(q));
@@ -1055,9 +1344,9 @@ function renderEmp(){
     <td class="dim">${DAYS_KO[e.restday]||e.restday}</td>
     <td class="dim">${e.hireDate||'—'}</td>
     <td style="white-space:nowrap">
-      <button class="btn sm" onclick="openEmpEdit('${e.uid}')">Edit</button>
-      <button class="btn sm" style="margin-left:4px;color:var(--blue)" onclick="openRateHistory('${e.uid}')">Rate History</button>
-      <button class="btn sm danger" style="margin-left:4px" onclick="openDel('${e.uid}')">Delete</button>
+      ${canEdit()?`<button class="btn sm" onclick="openEmpEdit('${e.uid}')">Edit</button>`:''}
+      ${canEdit()?`<button class="btn sm" style="margin-left:4px;color:var(--blue)" onclick="openRateHistory('${e.uid}')">Rate History</button>`:''}
+      ${canAddDeleteEmp()?`<button class="btn sm danger" style="margin-left:4px" onclick="openDel('${e.uid}')">Delete</button>`:''}
     </td></tr>`).join('');
 
   renderPager('empPager', empPage, totalP, n=>{empPage=n;renderEmp()}, total);
@@ -1103,6 +1392,7 @@ function openEmpEdit(uid){
 }
 function closeEmpModal(){document.getElementById('empModal').style.display='none';}
 function saveEmp(){
+  if(!canEdit()){alert('Permission denied: Manager or Admin role required.');return;}
   const name=document.getElementById('f_name').value.trim();
   if(!name){alert('Please enter a name.');return;}
   const no=parseInt(document.getElementById('f_no').value)||0;
@@ -1129,6 +1419,7 @@ function openDel(uid){
   document.getElementById('delModal').style.display='flex';
 }
 function confirmDel(){
+  if(!canAddDeleteEmp()){alert('Permission denied: Admin role required to delete employees.');return;}
   if(delNo===null) return;
   employees=employees.filter(e=>e.uid!==delNo);
   saveEmployees();
@@ -1199,6 +1490,8 @@ function renderAtt(){
   const dept=document.getElementById('attDept').value;
   const sort=document.getElementById('attSort').value;
   let data=getAttProcessed(yr,mo,half);
+  // Dept-based access: admin=all, manager/viewer=own dept
+  data=deptFilter(data,'d');
   if(dept) data=data.filter(e=>e.d===dept);
   if(q) data=data.filter(e=>e.n.toLowerCase().includes(q));
   if(sort==='ot_desc') data.sort((a,b)=>b.otH-a.otH);
@@ -1585,6 +1878,8 @@ function getPayFiltered(allPay){
   const type=document.getElementById('payType').value;
   const sort=document.getElementById('paySort').value;
   let d=[...allPay];
+  // Dept-based access: admin=all, manager/viewer=own dept
+  d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
   if(type) d=d.filter(e=>e.type===type);
   if(q) d=d.filter(e=>e.name.toLowerCase().includes(q));
@@ -2011,6 +2306,7 @@ function showXlsPreview(parsed){
 }
 
 async function confirmXlsUpload(){
+  if(!canEdit()){ showToast('Permission denied: Manager or Admin role required.','warn'); return; }
   if(!_xlsParsed) return;
   const {yr,mo,half,entries}=_xlsParsed;
   const k=attKey(yr,mo,half);
@@ -2619,6 +2915,44 @@ async function loadAttStoreLocal(){
   <div class="modal-footer">
     <button class="btn" onclick="document.getElementById('attInputModal').style.display='none'">Cancel</button>
     <button class="btn primary" onclick="saveAttInput()">Save</button>
+  </div>
+</div>
+</div>
+
+<!-- Assign Role Modal -->
+<div id="userRoleModal" class="overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+<div class="modal" style="max-width:440px" onclick="event.stopPropagation()">
+  <div class="modal-header">
+    <h3 id="userRoleModalTitle">Assign Role</h3>
+    <button class="modal-close" onclick="document.getElementById('userRoleModal').style.display='none'">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="field" style="margin-bottom:12px">
+      <label>Email</label>
+      <input id="ur_email" type="email" placeholder="user@example.com" style="width:100%" readonly/>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>Role</label>
+      <select id="ur_role" style="width:100%" onchange="onRoleSelectChange()">
+        <option value="admin">🔴 Admin — All departments, all features</option>
+        <option value="manager">🟡 Manager — Own dept: edit + upload + payroll</option>
+        <option value="viewer">🔵 Viewer — Own dept: read-only</option>
+      </select>
+    </div>
+    <div class="field" id="ur_dept_field" style="margin-bottom:12px">
+      <label>Department</label>
+      <select id="ur_dept" style="width:100%">
+        <option value="">Select department…</option>
+      </select>
+    </div>
+    <div id="ur_admin_note" style="display:none;background:var(--red-bg);color:var(--red-text);border-radius:var(--radius);padding:8px 12px;font-size:12px">
+      ⚠ Admin has access to ALL departments and ALL features.
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn danger" id="ur_remove_btn" onclick="removeUserRole()" style="display:none;margin-right:auto">Remove Role</button>
+    <button class="btn" onclick="document.getElementById('userRoleModal').style.display='none'">Cancel</button>
+    <button class="btn primary" onclick="saveUserRole()">Save</button>
   </div>
 </div>
 </div>
