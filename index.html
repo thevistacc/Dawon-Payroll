@@ -853,106 +853,30 @@ async function onSignedIn(user){
 }
 
 async function loadUserRole(userId){
-  try{
-    const {data,error}=await getSupa()
-      .from('user_roles').select('role,dept,company').eq('user_id',userId).single();
-    if(error){
-      console.warn('loadUserRole error:', error.code, error.message);
-      _userRole='viewer'; _userDept=null; _userCompany=null;
-    } else if(data){
-      _userRole=data.role;
-      _userDept=data.dept||null;
-      _userCompany=data.company||null;
-      console.log('✓ Role loaded:', _userRole, 'Dept:', _userDept||'ALL', 'Company:', _userCompany||'ALL');
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      const {data,error}=await getSupa()
+        .from('user_roles').select('role,dept,company').eq('user_id',userId).single();
+      if(error){
+        console.warn('loadUserRole error:', error.code, error.message, 'attempt:'+(attempt+1));
+        if(error.code==='PGRST116'){ _userRole='viewer';_userDept=null;_userCompany=null; break; }
+        if(attempt<1){ await new Promise(function(r){setTimeout(r,1200);}); continue; }
+        _userRole='viewer';_userDept=null;_userCompany=null;
+      } else if(data){
+        _userRole=data.role;
+        _userDept=data.dept||null;
+        _userCompany=data.company||null;
+        console.log('✓ Role loaded:', _userRole, 'Company:', _userCompany||'ALL');
+        break;
+      }
+    }catch(e){
+      console.error('loadUserRole exception:', e.message);
+      if(attempt<1){ await new Promise(function(r){setTimeout(r,1200);}); continue; }
+      _userRole='viewer';_userDept=null;_userCompany=null;
     }
-  }catch(e){
-    console.error('loadUserRole exception:', e.message);
-    _userRole='viewer'; _userDept=null;
   }
-  // Show role in UI regardless
   const chip=document.getElementById('roleChip');
-  if(chip){ chip.textContent=({admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer')+(_userDept&&!isAdmin()?' · '+_userDept:''); }
-}
-
-function applyRoleUI(){
-  const admin = isAdmin();
-  const edit  = canEdit();       // admin + manager
-  const pay   = canViewPayroll(); // admin + manager
-
-  // ── Employee page ──
-  // Add employee: admin only
-  const addEmpBtn=document.querySelector('[onclick="openEmpAdd()"]');
-  if(addEmpBtn) addEmpBtn.style.display=admin?'':'none';
-
-  // Upload employee excel: admin only
-  const empXlsBtn=document.getElementById('empXlsInput');
-  if(empXlsBtn && empXlsBtn.previousElementSibling){
-    empXlsBtn.previousElementSibling.style.display=admin?'':'none';
-  }
-
-  // ── Attendance page ──
-  // Upload excel: admin + manager
-  const xlsUpBtn=document.getElementById('xlsUploadInput');
-  if(xlsUpBtn&&xlsUpBtn.previousElementSibling)
-    xlsUpBtn.previousElementSibling.style.display=edit?'':'none';
-  // Add entry: admin + manager
-  const addEntryBtn=document.querySelector('[onclick="openAttInput()"]');
-  if(addEntryBtn) addEntryBtn.style.display=edit?'':'none';
-  // Delete period: admin only
-  const delPeriodBtn=document.querySelector('[onclick="deleteAttPeriod()"]');
-  if(delPeriodBtn) delPeriodBtn.style.display=admin?'':'none';
-
-  // ── Payroll tab ──
-  // Visible only for admin + manager
-  const payTab=document.querySelectorAll('.nav-tab')[2];
-  if(payTab){
-    payTab.style.display=pay?'':'none';
-    payTab.title=pay?'':'Payroll access requires Admin or Manager role';
-  }
-
-  // ── Users tab: admin only ──
-  const usersTab=document.getElementById('usersTab');
-  if(usersTab) usersTab.style.display=admin?'':'none';
-
-  // ── Role badge (user menu) ──
-  const badge=document.getElementById('userBadge');
-  if(badge&&!document.getElementById('roleChip')){
-    const chip=document.createElement('span');
-    chip.id='roleChip';
-    chip.style.cssText='font-size:10px;background:var(--surface2);border-radius:3px;padding:1px 6px;color:var(--text2);margin-left:2px';
-    const roleLabel={admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer';
-    chip.textContent=roleLabel+((_userDept&&!admin)?' · '+_userDept:'');
-    badge.appendChild(chip);
-  }
-
-  // ── Company text next to nav brand ──
-  const navBadge=document.getElementById('companyNavBadge');
-  if(navBadge){
-    if(_userCompany){
-      navBadge.textContent=_userCompany;
-      navBadge.style.display='';
-    } else if(admin){
-      navBadge.style.display='none';
-    }
-  }
-
-  // ── Update page subtitles with company ──
-  const companyStr=_userCompany||'All Companies';
-  const empSub=document.querySelector('#page-emp .section-sub');
-  if(empSub) empSub.textContent='Dawon Development Corporation · '+companyStr;
-}
-
-function showUserMenu(){
-  const items=['Sign Out'];
-  if(isAdmin()) items.unshift('Manage User Roles');
-  const choice=prompt(
-    'User: '+(_currentUser&&_currentUser.email||'')+
-    '\nRole: '+(_userRole||'viewer')+(_userDept?' ('+_userDept+')':' (All Depts)')+
-    '\n\n1. Sign Out'+(isAdmin()?'\n2. Manage User Roles':'')+
-    '\n\nEnter number:'
-  );
-  if(choice==='1') getSupa().auth.signOut().then(()=>location.reload());
-  if(choice==='2'&&isAdmin()) goPage('users');
+  if(chip){ chip.textContent=({admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer'); }
 }
 
 async function openRoleManager(){
