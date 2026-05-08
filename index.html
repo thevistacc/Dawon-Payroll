@@ -389,6 +389,11 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
   </div>
   <div class="toolbar">
     <input type="text" class="search-input" id="attQ" placeholder="Search Name" oninput="renderAtt()"/>
+    <select id="attCompany" onchange="renderAtt()">
+      <option value="">All Companies</option>
+      <option value="DW">DW</option>
+      <option value="DDC">DDC</option>
+    </select>
     <select id="attDept" onchange="renderAtt()"><option value="">Total Department</option></select>
     <select id="attSort" onchange="renderAtt()">
       <option value="name">By Name</option>
@@ -457,6 +462,11 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
 
   <div class="toolbar">
     <input type="text" class="search-input" id="payQ" placeholder="Search Name" oninput="renderPay()"/>
+    <select id="payCompany" onchange="renderPay()">
+      <option value="">All Companies</option>
+      <option value="DW">DW</option>
+      <option value="DDC">DDC</option>
+    </select>
     <select id="payDept" onchange="renderPay()"><option value="">Total Department</option></select>
     <select id="payType" onchange="renderPay()">
       <option value="">Employment Total</option>
@@ -960,6 +970,12 @@ function applyRoleUI(){
   const usersTab=document.getElementById('usersTab');
   if(usersTab) usersTab.style.display=admin?'':'none';
 
+  // ── Att/Pay company dropdowns: admin only ──
+  ['attCompany','payCompany'].forEach(function(id){
+    const sel=document.getElementById(id);
+    if(sel) sel.style.display=admin?'':'none';
+  });
+
   // ── Company filter ──
   const empCoSel=document.getElementById('empCompany');
   if(empCoSel){
@@ -972,11 +988,11 @@ function applyRoleUI(){
         '<option value="DDC">DDC</option>'+
         '<option value="__none__">미지정</option>';
     } else {
-      // Non-admin: only blank + own company
-      empCoSel.innerHTML=
-        '<option value="">All</option>'+
-        (_userCompany?'<option value="'+_userCompany+'">'+_userCompany+'</option>':'');
+      // Non-admin: own company + 미지정 only
       empCoSel.disabled=false;
+      empCoSel.innerHTML=
+        (_userCompany?'<option value="'+_userCompany+'">'+_userCompany+'</option>':'')+
+        '<option value="__none__">미지정</option>';
     }
   }
 
@@ -1659,11 +1675,12 @@ function getEmpFiltered(){
     else if(coFilter) d=d.filter(function(e){ return e.company===coFilter; });
     // else coFilter='' → show all
   } else {
-    // Non-admin: first restrict to own company
+    // Non-admin: first restrict to own company + 미지정
     d=companyFilter(d,'company');
-    // then apply dropdown (only own company or blank allowed)
-    if(coFilter && coFilter===_userCompany) d=d.filter(function(e){ return e.company===coFilter; });
-    else if(coFilter==='') d; // show all within own company (already filtered)
+    // then apply dropdown
+    if(coFilter===_userCompany) d=d.filter(function(e){ return e.company===coFilter; });
+    else if(coFilter==='__none__') d=d.filter(function(e){ return !e.company; });
+    // else '' = show all within accessible range
   }
   d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
@@ -1864,8 +1881,13 @@ function renderAtt(){
   const dept=document.getElementById('attDept').value;
   const sort=document.getElementById('attSort').value;
   let data=getAttProcessed(yr,mo,half);
-  // Company + dept filter
-  data=companyFilter(data,'company');
+  // Company filter: admin uses dropdown, others use role-based filter
+  const attCoFilter=document.getElementById('attCompany')&&document.getElementById('attCompany').value;
+  if(isAdmin()&&attCoFilter){
+    data=data.filter(function(e){ return e.company===attCoFilter; });
+  } else {
+    data=companyFilter(data,'company');
+  }
   data=deptFilter(data,'d');
   if(dept) data=data.filter(e=>e.d===dept);
   if(q) data=data.filter(e=>e.n.toLowerCase().includes(q));
@@ -2264,8 +2286,13 @@ function getPayFiltered(allPay){
   const type=document.getElementById('payType').value;
   const sort=document.getElementById('paySort').value;
   let d=[...allPay];
-  // Company filter first, then dept filter
-  d=companyFilter(d,'company');
+  // Company filter: admin uses dropdown, others use role-based filter
+  const payCoFilter=document.getElementById('payCompany')&&document.getElementById('payCompany').value;
+  if(isAdmin()&&payCoFilter){
+    d=d.filter(function(e){ return e.company===payCoFilter; });
+  } else {
+    d=companyFilter(d,'company');
+  }
   d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
   if(type) d=d.filter(e=>e.type===type);
