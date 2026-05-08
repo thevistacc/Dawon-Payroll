@@ -723,7 +723,11 @@ function deptFilter(arr, deptKey){
 function inMyCompany(company){ return isAdmin() || !_userCompany || _userCompany===company; }
 function companyFilter(arr, companyKey){
   if(isAdmin()||!_userCompany) return arr;
-  return arr.filter(function(e){ return e[companyKey||'company']===_userCompany; });
+  return arr.filter(function(e){
+    const co=e[companyKey||'company'];
+    // Records with no company set are visible to all (not yet assigned)
+    return !co || co===_userCompany;
+  });
 }
 
 function getSupa(){
