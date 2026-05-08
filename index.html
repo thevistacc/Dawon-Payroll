@@ -1368,15 +1368,20 @@ async function loadAttStore(){
     // Load just the period keys first (no data) to know what's available
     const {data:index,error:idxErr}=await getSupa().from('attendance').select('period');
     if(!idxErr&&index){
-      index.forEach(function(row){
-        // Mark as "known but not loaded" unless already in attStore
-        if(!attStore[row.period]) attStore[row.period]=null;
-      });
+      if(index.length===0){
+        // DB is empty — clear localStorage cache too
+        localStorage.removeItem('att_store');
+        attStore={};
+      } else {
+        index.forEach(function(row){
+          if(!attStore[row.period]) attStore[row.period]=null;
+        });
+      }
     }
     // Load current period immediately
     await loadAttPeriod(curAttYr, curAttMo, curAttHalf);
   }catch(e){
-    // Fallback to localStorage
+    // Fallback to localStorage only if Supabase unreachable
     try{
       const raw=localStorage.getItem('att_store');
       if(raw) attStore=JSON.parse(raw);
