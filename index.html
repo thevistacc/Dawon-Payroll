@@ -707,7 +707,7 @@ function isManager(){      return _userRole==='manager'; }
 function isViewer(){       return _userRole==='viewer'||!_userRole; }
 
 function canEdit(){        return _userRole==='admin'||_userRole==='manager'; }
-function canViewPayroll(){ return _userRole==='admin'||_userRole==='manager'; }
+function canViewPayroll(){ return true; } // all roles can view payroll
 function canDeletePeriod(){ return _userRole==='admin'; }
 function canAddDeleteEmp(){ return _userRole==='admin'||_userRole==='manager'; }
 
@@ -922,12 +922,9 @@ function applyRoleUI(){
   const delPeriodBtn=document.querySelector('[onclick="deleteAttPeriod()"]');
   if(delPeriodBtn) delPeriodBtn.style.display=admin?'':'none';
 
-  // ── Payroll tab ──
+  // ── Payroll tab: visible to all roles ──
   const payTab=document.querySelectorAll('.nav-tab')[2];
-  if(payTab){
-    payTab.style.display=pay?'':'none';
-    payTab.title=pay?'':'Manager or Admin access required';
-  }
+  if(payTab){ payTab.style.display=''; payTab.title=''; }
 
   // ── Users tab: admin only ──
   const usersTab=document.getElementById('usersTab');
@@ -1548,7 +1545,7 @@ function initDepts(){
 // ═══════════════════════════════════════
 function goPage(p){
   if(p==='users'&&!isAdmin()){ showToast('Admin access required.','warn'); return; }
-  if(p==='pay'&&!canViewPayroll()){ showToast('Manager or Admin access required.','warn'); return; }
+  // All roles can view payroll (viewer read-only enforced in UI)
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(x=>x.classList.remove('active'));
   const pageEl=document.getElementById('page-'+p);
