@@ -960,9 +960,25 @@ function applyRoleUI(){
   const usersTab=document.getElementById('usersTab');
   if(usersTab) usersTab.style.display=admin?'':'none';
 
-  // ── Company filter: always visible, controlled by getEmpFiltered ──
+  // ── Company filter ──
   const empCoSel=document.getElementById('empCompany');
-  if(empCoSel){ empCoSel.style.display=''; empCoSel.disabled=false; }
+  if(empCoSel){
+    empCoSel.style.display='';
+    if(isAdmin()){
+      empCoSel.disabled=false;
+      empCoSel.innerHTML=
+        '<option value="">All Companies</option>'+
+        '<option value="DW">DW</option>'+
+        '<option value="DDC">DDC</option>'+
+        '<option value="__none__">미지정</option>';
+    } else {
+      // Non-admin: only blank + own company
+      empCoSel.innerHTML=
+        '<option value="">All</option>'+
+        (_userCompany?'<option value="'+_userCompany+'">'+_userCompany+'</option>':'');
+      empCoSel.disabled=false;
+    }
+  }
 
   // ── User badge (top right) ──
   const badge=document.getElementById('userBadge');
@@ -1637,13 +1653,17 @@ function getEmpFiltered(){
   const sort=document.getElementById('empSort').value;
   const coFilter=document.getElementById('empCompany')&&document.getElementById('empCompany').value;
   let d=[...employees];
-  // Admin: apply manual company filter from dropdown
-  if(isAdmin()&&coFilter){
+  if(isAdmin()){
+    // Admin: filter by dropdown selection
     if(coFilter==='__none__') d=d.filter(function(e){ return !e.company; });
-    else d=d.filter(function(e){ return e.company===coFilter; });
+    else if(coFilter) d=d.filter(function(e){ return e.company===coFilter; });
+    // else coFilter='' → show all
   } else {
-    // Non-admin: apply role-based company filter
+    // Non-admin: first restrict to own company
     d=companyFilter(d,'company');
+    // then apply dropdown (only own company or blank allowed)
+    if(coFilter && coFilter===_userCompany) d=d.filter(function(e){ return e.company===coFilter; });
+    else if(coFilter==='') d; // show all within own company (already filtered)
   }
   d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
