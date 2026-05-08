@@ -855,10 +855,26 @@ async function onSignedIn(user){
 function showUserMenu(){
   const info='User: '+(_currentUser&&_currentUser.email||'')+
     '\nRole: '+(_userRole||'viewer')+(_userCompany?' ['+_userCompany+']':'');
-  const choice=prompt(info+'\n\n1. Sign Out'+(isAdmin()?'\n2. Manage Users':'')+
-    '\n\nEnter number:');
-  if(choice==='1') getSupa().auth.signOut().then(function(){ location.reload(); });
-  if(choice==='2'&&isAdmin()) goPage('users');
+  const options='\n\n1. Change Password\n2. Sign Out'+(isAdmin()?'\n3. Manage Users':'');
+  const choice=prompt(info+options+'\n\nEnter number:');
+  if(choice==='1') openChangePassword();
+  if(choice==='2') getSupa().auth.signOut().then(function(){ location.reload(); });
+  if(choice==='3'&&isAdmin()) goPage('users');
+}
+
+async function openChangePassword(){
+  const newPw=prompt('Enter new password:\n(minimum 6 characters)');
+  if(!newPw) return;
+  if(newPw.length<6){ alert('Password must be at least 6 characters.'); return; }
+  const confirmPw=prompt('Confirm new password:');
+  if(newPw!==confirmPw){ alert('Passwords do not match.'); return; }
+  try{
+    const {error}=await getSupa().auth.updateUser({password:newPw});
+    if(error) throw error;
+    alert('✓ Password changed successfully!');
+  }catch(e){
+    alert('Error: '+e.message);
+  }
 }
 
 function applyRoleUI(){
