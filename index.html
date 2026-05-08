@@ -1082,7 +1082,7 @@ function openAddUserRole(){
   document.getElementById('userRoleModalTitle').textContent='Assign Role to User';
   document.getElementById('ur_email').value='';
   document.getElementById('ur_email').readOnly=false;
-  document.getElementById('ur_email').placeholder='Paste user UUID from Supabase → Auth → Users';
+  document.getElementById('ur_email').placeholder='xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
   document.getElementById('ur_role').value='viewer';
   document.getElementById('ur_company').value='';
   document.getElementById('ur_remove_btn').style.display='none';
@@ -1121,6 +1121,8 @@ async function saveUserRole(){
   const dept=role==='admin'?null:(document.getElementById('ur_dept').value||null);
 
   if(!userId){ alert('Please enter a User ID.'); return; }
+  const uuidRegex=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if(!uuidRegex.test(userId)){ alert('Invalid User ID format.\nPlease paste the UUID from Supabase → Authentication → Users.\n\nFormat: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'); return; }
   if(role!=='admin'&&!company){ alert('Please select a company (DW or DDC).'); return; }
 
   try{
@@ -3196,8 +3198,8 @@ async function loadAttStoreLocal(){
   </div>
   <div class="modal-body">
     <div class="field" style="margin-bottom:12px">
-      <label>Email</label>
-      <input id="ur_email" type="email" placeholder="user@example.com" style="width:100%" readonly/>
+      <label>User UUID <span style="font-size:10px;color:var(--text3);font-weight:400">(Supabase → Authentication → Users → UID)</span></label>
+      <input id="ur_email" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:100%;font-family:monospace;font-size:12px" readonly/>
     </div>
     <div class="field" style="margin-bottom:12px">
       <label>Role</label>
