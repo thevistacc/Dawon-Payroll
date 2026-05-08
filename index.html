@@ -2571,8 +2571,12 @@ function parseXlsx(arrayBuffer){
         }
         if(timeRowIdx!==null){
           const timeCells=allRows[timeRowIdx];
+          // Find column offset: date row starts at col 1 (col 0 is empty label)
+          const dateRow=allRows[dateRowIdx];
+          const colOffset=dateRow.findIndex(function(c){return /^\d+$/.test(String(c||'').trim());});
+          const offset=colOffset>=0?colOffset:1;
           dates.forEach(function(day,j){
-            const cell=(timeCells[j]||'').trim();
+            const cell=(timeCells[offset+j]||'').trim();
             if(!cell) return;
             // Extract time patterns HH:MM, ignore text like SL/LWP
             const times=(cell.match(/\d{1,2}:\d{2}/g)||[]).filter(function(t){return t!=='00:00';});
