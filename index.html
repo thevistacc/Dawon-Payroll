@@ -1533,8 +1533,10 @@ function initDepts(){
     const sel=document.getElementById(id);
     if(!sel) return;
     const cur=sel.value;
+    const prev=sel.onchange; sel.onchange=null; // prevent change event during rebuild
     sel.innerHTML='<option value="">Total Department</option>';
     depts.forEach(function(d){const o=document.createElement('option');o.value=d;o.textContent=d;if(d===cur)o.selected=true;sel.appendChild(o);});
+    sel.onchange=prev; // restore
   });
   const dl=document.getElementById('deptList');
   if(dl){dl.innerHTML='';depts.forEach(function(d){const o=document.createElement('option');o.value=d;dl.appendChild(o);});}
@@ -1712,7 +1714,7 @@ function onAttPeriodChange(){
   document.getElementById('attDateHeader').dataset.built='';
   attPage=1;
   // Lazy load period if not yet loaded
-  loadAttPeriod(curAttYr,curAttMo,curAttHalf).then(function(){ renderAtt(); });
+  loadAttPeriod(curAttYr,curAttMo,curAttHalf).then(function(){ setTimeout(renderAtt,0); });
 }
 
 function getAttDepts(yr,mo,half){
@@ -2103,8 +2105,8 @@ function onPayPeriodChange(){
   curPayMo=parseInt(document.getElementById('payMonth').value);
   curPayHalf=parseInt(document.getElementById('payHalf').value);
   _payCache=null;
-  // Lazy load period if not yet loaded
-  loadAttPeriod(curPayYr,curPayMo,curPayHalf).then(function(){ renderPay(); });
+  // Lazy load then render (use setTimeout to break sync call stack)
+  loadAttPeriod(curPayYr,curPayMo,curPayHalf).then(function(){ setTimeout(renderPay,0); });
   // Update period label
   const monthNames=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','1Jan','1Feb'];
   const {s,e}=getHalfDays(curPayYr,curPayMo,curPayHalf);
