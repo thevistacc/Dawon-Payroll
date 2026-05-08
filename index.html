@@ -313,6 +313,12 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
   <div class="metrics" id="emp-metrics"></div>
   <div class="toolbar">
     <input type="text" class="search-input" id="empQ" placeholder="Search Name / ID" oninput="renderEmp()"/>
+    <select id="empCompany" onchange="renderEmp()" style="display:none">
+      <option value="">All Companies</option>
+      <option value="DW">DW</option>
+      <option value="DDC">DDC</option>
+      <option value="__none__">미지정</option>
+    </select>
     <select id="empDept" onchange="renderEmp()"><option value="">Total Department</option></select>
     <select id="empType" onchange="renderEmp()">
       <option value="">Employment Total</option>
@@ -953,6 +959,10 @@ function applyRoleUI(){
   // ── Users tab: admin only ──
   const usersTab=document.getElementById('usersTab');
   if(usersTab) usersTab.style.display=admin?'':'none';
+
+  // ── Company filter in emp page: admin only ──
+  const empCoSel=document.getElementById('empCompany');
+  if(empCoSel) empCoSel.style.display=admin?'':'none';
 
   // ── User badge (top right) ──
   const badge=document.getElementById('userBadge');
@@ -1622,9 +1632,16 @@ function getEmpFiltered(){
   const dept=document.getElementById('empDept').value;
   const type=document.getElementById('empType').value;
   const sort=document.getElementById('empSort').value;
+  const coFilter=document.getElementById('empCompany')&&document.getElementById('empCompany').value;
   let d=[...employees];
-  // Company filter first, then dept filter
-  d=companyFilter(d,'company');
+  // Admin: apply manual company filter from dropdown
+  if(isAdmin()&&coFilter){
+    if(coFilter==='__none__') d=d.filter(function(e){ return !e.company; });
+    else d=d.filter(function(e){ return e.company===coFilter; });
+  } else {
+    // Non-admin: apply role-based company filter
+    d=companyFilter(d,'company');
+  }
   d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
   if(type) d=d.filter(e=>e.type===type);
