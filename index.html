@@ -967,12 +967,18 @@ function applyRoleUI(){
 async function loadUserRole(userId){
   for(let attempt=0;attempt<2;attempt++){
     try{
-      const {data,error}=await getSupa()
-        .from('user_roles').select('role,dept,company').eq('user_id',userId).single();
+      // Try with company column first; fallback without if column missing (42703)
+      let res=await getSupa().from('user_roles').select('role,dept,company').eq('user_id',userId).single();
+      if(res.error&&(res.error.code==='42703'||res.error.code==='500'||
+         (res.error.message&&res.error.message.includes('company')))){
+        console.warn('company column missing, retrying without it');
+        res=await getSupa().from('user_roles').select('role,dept').eq('user_id',userId).single();
+      }
+      const {data,error}=res;
       if(error){
         console.warn('loadUserRole error:', error.code, error.message, 'attempt:'+(attempt+1));
         if(error.code==='PGRST116'){ _userRole='viewer';_userDept=null;_userCompany=null; break; }
-        if(attempt<1){ await new Promise(function(r){setTimeout(r,1200);}); continue; }
+        if(attempt<1){ await new Promise(function(r){setTimeout(r,1000);}); continue; }
         _userRole='viewer';_userDept=null;_userCompany=null;
       } else if(data){
         _userRole=data.role;
@@ -983,12 +989,10 @@ async function loadUserRole(userId){
       }
     }catch(e){
       console.error('loadUserRole exception:', e.message);
-      if(attempt<1){ await new Promise(function(r){setTimeout(r,1200);}); continue; }
+      if(attempt<1){ await new Promise(function(r){setTimeout(r,1000);}); continue; }
       _userRole='viewer';_userDept=null;_userCompany=null;
     }
   }
-  const chip=document.getElementById('roleChip');
-  if(chip){ chip.textContent=({admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer'); }
 }
 
 async function openRoleManager(){
