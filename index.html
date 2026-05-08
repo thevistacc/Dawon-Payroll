@@ -212,7 +212,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
      LOGIN SCREEN
 ═══════════════════════════════════════════ -->
 <div id="loginScreen">
-  <div class="login-box">
+  <div class="login-box" id="loginBoxMain">
     <div class="login-logo">Dawon <span>Payroll</span></div>
     <div class="login-sub">Sign in to continue</div>
     <div class="login-err" id="loginErr"></div>
@@ -229,7 +229,36 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     <button class="btn primary" style="width:100%;height:40px;font-size:14px" onclick="doLogin()" id="loginBtn">
       Sign In
     </button>
-    <div class="login-foot">Contact your administrator to create an account</div>
+    <div style="text-align:center;margin-top:12px">
+      <span style="font-size:12px;color:var(--text3)">No account? </span>
+      <button onclick="showSignupRequest()" style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">Request Access</button>
+    </div>
+  </div>
+
+  <!-- Request Access Panel -->
+  <div class="login-box" id="loginBoxSignup" style="display:none">
+    <div class="login-logo">Dawon <span>Payroll</span></div>
+    <div class="login-sub">Request account access</div>
+    <div class="login-err" id="signupErr"></div>
+    <div class="login-ok" id="signupOk" style="display:none;background:var(--green-bg);color:var(--green-text);border-radius:var(--radius);padding:8px 12px;font-size:12px;margin-bottom:12px"></div>
+    <div class="field" style="margin-bottom:12px">
+      <label>Full Name</label>
+      <input id="signupName" type="text" placeholder="LASTNAME, FIRSTNAME" style="width:100%"/>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>Email</label>
+      <input id="signupEmail" type="email" placeholder="you@example.com" style="width:100%"/>
+    </div>
+    <div class="field" style="margin-bottom:16px">
+      <label>Department</label>
+      <input id="signupDept" type="text" placeholder="e.g. IRRIGATION" style="width:100%"/>
+    </div>
+    <button class="btn primary" style="width:100%;height:40px;font-size:14px" onclick="submitSignupRequest()" id="signupBtn">
+      Send Request
+    </button>
+    <div style="text-align:center;margin-top:12px">
+      <button onclick="showLoginBox()" style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">← Back to Sign In</button>
+    </div>
   </div>
 </div>
 
@@ -473,6 +502,24 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     </table>
     </div>
   </div>
+  <!-- Pending Access Requests -->
+  <div style="margin-top:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:600">Pending Access Requests <span id="reqBadge" style="display:none;background:var(--red);color:white;border-radius:10px;font-size:10px;padding:1px 7px;margin-left:6px"></span></div>
+      <button class="btn sm" onclick="loadAccessRequests()">↻ Refresh</button>
+    </div>
+    <div class="tbl-wrap">
+      <div class="tbl-scroll">
+      <table>
+        <thead><tr>
+          <th>Name</th><th>Email</th><th>Department</th><th>Requested</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody id="reqBody"><tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text3)">No pending requests</td></tr></tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
   <div style="margin-top:16px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text2);line-height:1.8">
     <b>Role permissions:</b><br>
     🔴 <b>Admin</b> — All departments, all features (add/delete employees, manage users)<br>
@@ -664,6 +711,48 @@ function setSyncState(state){ // 'synced' | 'syncing' | 'error'
 }
 
 // ── AUTH ──
+function showSignupRequest(){
+  document.getElementById('loginBoxMain').style.display='none';
+  document.getElementById('loginBoxSignup').style.display='';
+  document.getElementById('signupErr').style.display='none';
+  document.getElementById('signupOk').style.display='none';
+}
+function showLoginBox(){
+  document.getElementById('loginBoxSignup').style.display='none';
+  document.getElementById('loginBoxMain').style.display='';
+  document.getElementById('loginErr').style.display='none';
+}
+
+async function submitSignupRequest(){
+  const name  = document.getElementById('signupName').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const dept  = document.getElementById('signupDept').value.trim();
+  const errEl = document.getElementById('signupErr');
+  const okEl  = document.getElementById('signupOk');
+  const btn   = document.getElementById('signupBtn');
+
+  errEl.style.display='none'; okEl.style.display='none';
+  if(!name||!email){ errEl.textContent='Please enter your name and email.'; errEl.style.display=''; return; }
+
+  btn.disabled=true; btn.textContent='Sending…';
+  try{
+    const {error}=await getSupa().from('access_requests').insert({
+      name, email, dept: dept||null, status:'pending',
+      requested_at: new Date().toISOString()
+    });
+    if(error) throw error;
+    okEl.textContent='✓ Request sent! An admin will contact you when your account is ready.';
+    okEl.style.display='';
+    document.getElementById('signupName').value='';
+    document.getElementById('signupEmail').value='';
+    document.getElementById('signupDept').value='';
+  }catch(e){
+    errEl.textContent='Error: '+e.message;
+    errEl.style.display='';
+  }
+  btn.disabled=false; btn.textContent='Send Request';
+}
+// ── AUTH ──
 async function doLogin(){
   const errEl=document.getElementById('loginErr');
   const btn=document.getElementById('loginBtn');
@@ -816,6 +905,73 @@ function showUserMenu(){
 
 async function openRoleManager(){
   goPage('users');
+}
+
+async function loadAccessRequests(){
+  const tbody=document.getElementById('reqBody');
+  const badge=document.getElementById('reqBadge');
+  if(!tbody) return;
+  try{
+    const {data,error}=await getSupa().from('access_requests')
+      .select('*').order('requested_at',{ascending:false});
+    if(error) throw error;
+    if(!data||!data.length){
+      tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text3)">No requests yet</td></tr>';
+      if(badge) badge.style.display='none';
+      return;
+    }
+    const pending=data.filter(function(r){return r.status==='pending';}).length;
+    if(badge){
+      badge.textContent=pending;
+      badge.style.display=pending?'':'none';
+    }
+    tbody.innerHTML=data.map(function(r){
+      const date=new Date(r.requested_at).toLocaleDateString('en-PH');
+      const statusClr=r.status==='pending'?'color:var(--amber-text)':
+                      r.status==='approved'?'color:var(--green-text)':'color:var(--text3)';
+      return '<tr>'
+        +'<td style="font-weight:500">'+r.name+'</td>'
+        +'<td class="dim">'+r.email+'</td>'
+        +'<td class="dim">'+(r.dept||'—')+'</td>'
+        +'<td class="dim">'+date+'</td>'
+        +'<td style="font-size:12px;'+statusClr+'">'+r.status+'</td>'
+        +'<td style="white-space:nowrap">'
+        +(r.status==='pending'?
+          '<button class="btn sm primary" onclick="approveRequest(''+r.id+'',''+r.email+'',''+(r.dept||'')+'')">Approve</button>'
+          +'<button class="btn sm danger" style="margin-left:4px" onclick="denyRequest(''+r.id+'')">Deny</button>'
+          :'<span style="font-size:11px;color:var(--text3)">—</span>')
+        +'</td></tr>';
+    }).join('');
+  }catch(e){
+    tbody.innerHTML='<tr><td colspan="6" style="color:var(--red);padding:12px">Error: '+e.message+'</td></tr>';
+  }
+}
+
+async function approveRequest(reqId, email, dept){
+  // Invite user via Supabase Auth (sends email with password setup link)
+  const role=prompt('Assign role for '+email+':\n1. viewer\n2. manager\n3. admin\n\nEnter role name:');
+  if(!role||!['admin','manager','viewer'].includes(role.toLowerCase())) return;
+
+  try{
+    // Update request status
+    await getSupa().from('access_requests').update({status:'approved'}).eq('id',reqId);
+    showToast('✓ Request approved. Send the app URL to '+email+' and assign their role via + Assign Role.','success');
+    loadAccessRequests();
+    renderUsersPage();
+  }catch(e){
+    alert('Error: '+e.message);
+  }
+}
+
+async function denyRequest(reqId){
+  if(!confirm('Deny this request?')) return;
+  try{
+    await getSupa().from('access_requests').update({status:'denied'}).eq('id',reqId);
+    showToast('Request denied','info');
+    loadAccessRequests();
+  }catch(e){
+    alert('Error: '+e.message);
+  }
 }
 
 // ─── USER MANAGEMENT PAGE ───
@@ -1306,7 +1462,7 @@ function goPage(p){
   if(tabs[tabIdx]) tabs[tabIdx].classList.add('active');
   if(p==='att'){ document.getElementById('attDateHeader').dataset.built=''; renderAtt(); }
   if(p==='pay') renderPay();
-  if(p==='users') renderUsersPage();
+  if(p==='users'){ renderUsersPage(); loadAccessRequests(); }
 }
 
 // ═══════════════════════════════════════
