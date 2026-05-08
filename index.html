@@ -852,6 +852,78 @@ async function onSignedIn(user){
   subscribeRealtime();
 }
 
+function showUserMenu(){
+  const info='User: '+(_currentUser&&_currentUser.email||'')+
+    '\nRole: '+(_userRole||'viewer')+(_userCompany?' ['+_userCompany+']':'');
+  const choice=prompt(info+'\n\n1. Sign Out'+(isAdmin()?'\n2. Manage Users':'')+
+    '\n\nEnter number:');
+  if(choice==='1') getSupa().auth.signOut().then(function(){ location.reload(); });
+  if(choice==='2'&&isAdmin()) goPage('users');
+}
+
+function applyRoleUI(){
+  const admin=isAdmin();
+  const edit=canEdit();
+  const pay=canViewPayroll();
+
+  // ── Employee page ──
+  const addEmpBtn=document.querySelector('[onclick="openEmpAdd()"]');
+  if(addEmpBtn) addEmpBtn.style.display=admin||isManager()?'':'none';
+  const empXlsBtn=document.getElementById('empXlsInput');
+  if(empXlsBtn&&empXlsBtn.previousElementSibling)
+    empXlsBtn.previousElementSibling.style.display=admin?'':'none';
+
+  // ── Attendance page ──
+  const xlsUpBtn=document.getElementById('xlsUploadInput');
+  if(xlsUpBtn&&xlsUpBtn.previousElementSibling)
+    xlsUpBtn.previousElementSibling.style.display=edit?'':'none';
+  const addEntryBtn=document.querySelector('[onclick="openAttInput()"]');
+  if(addEntryBtn) addEntryBtn.style.display=edit?'':'none';
+  const delPeriodBtn=document.querySelector('[onclick="deleteAttPeriod()"]');
+  if(delPeriodBtn) delPeriodBtn.style.display=admin?'':'none';
+
+  // ── Payroll tab ──
+  const payTab=document.querySelectorAll('.nav-tab')[2];
+  if(payTab){
+    payTab.style.display=pay?'':'none';
+    payTab.title=pay?'':'Manager or Admin access required';
+  }
+
+  // ── Users tab: admin only ──
+  const usersTab=document.getElementById('usersTab');
+  if(usersTab) usersTab.style.display=admin?'':'none';
+
+  // ── User badge (top right) ──
+  const badge=document.getElementById('userBadge');
+  if(badge) badge.style.display='flex';
+  if(badge&&!document.getElementById('roleChip')){
+    const chip=document.createElement('span');
+    chip.id='roleChip';
+    chip.style.cssText='font-size:10px;background:var(--surface2);border-radius:3px;padding:1px 6px;color:var(--text2);margin-left:2px';
+    const roleLabel={admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer';
+    chip.textContent=roleLabel;
+    badge.appendChild(chip);
+  } else if(document.getElementById('roleChip')){
+    const roleLabel={admin:'Admin',manager:'Manager',viewer:'Viewer'}[_userRole]||'Viewer';
+    document.getElementById('roleChip').textContent=roleLabel;
+  }
+
+  // ── Company badge in nav ──
+  const navBadge=document.getElementById('companyNavBadge');
+  if(navBadge){
+    if(_userCompany){
+      navBadge.textContent=_userCompany;
+      navBadge.style.display='';
+    } else {
+      navBadge.style.display='none';
+    }
+  }
+
+  // ── Page subtitle ──
+  const empSub=document.querySelector('#page-emp .section-sub');
+  if(empSub) empSub.textContent='Dawon Development Corporation · '+(_userCompany||'All Companies');
+}
+
 async function loadUserRole(userId){
   for(let attempt=0;attempt<2;attempt++){
     try{
