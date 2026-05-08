@@ -2597,23 +2597,17 @@ function parseXlsx(arrayBuffer){
 
   if(!entries.length) throw new Error('Could not parse employee data.');
 
-  // Apply name mapping from Sheet2 if available
-  if(wb.SheetNames.includes('Sheet2')){
-    const ws2=wb.Sheets['Sheet2'];
-    const map2=XLSX.utils.sheet_to_json(ws2,{header:1,defval:''});
-    const nameMap={};
-    map2.forEach(function(row){
-      if(row[0]&&row[1]&&row[2]){
-        const bioName=String(row[1]).trim().toLowerCase();
-        const payrollName=String(row[2]).trim().toUpperCase();
-        if(bioName&&payrollName&&payrollName!=='PAYROLL') nameMap[bioName]=payrollName;
-      }
-    });
-    entries.forEach(function(emp){
-      const key=emp.n.toLowerCase().replace(/\s+dept\.?.*$/,'').trim();
-      if(nameMap[key]) emp.n=nameMap[key];
-    });
-  }
+  // Match biometric names to payroll names using employee profiles
+  // (Sheet2 mapping not used — it may contain errors)
+  entries.forEach(function(emp){
+    // Try to find matching employee in profiles
+    const matched=employees.find(function(e){ return nameMatch(e.name, emp.n); });
+    if(matched) emp.n=matched.name;
+    else {
+      // Fallback: normalize name to LASTNAME, FIRSTNAME format
+      emp.n=emp.n.toUpperCase().replace(/\s+dept\.?.*$/i,'').trim();
+    }
+  });
 
   return {yr,mo,half,startDay,endDay,entries};
 }
