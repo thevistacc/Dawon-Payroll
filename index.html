@@ -151,6 +151,13 @@ td.dim{color:var(--text2);font-size:12px}
 .login-err{background:var(--red-bg);color:var(--red-text);border-radius:var(--radius);padding:8px 12px;font-size:12px;margin-bottom:12px;display:none}
 .login-foot{font-size:11px;color:var(--text3);margin-top:1rem;text-align:center}
 
+/* COMPANY BADGE */
+.company-badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;
+  padding:3px 10px;border-radius:20px;letter-spacing:.3px}
+.company-badge.dw{background:#e8f4fd;color:#1565c0;border:1px solid #90caf9}
+.company-badge.ddc{background:#fce4ec;color:#b71c1c;border:1px solid #f48fb1}
+.company-badge.all{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+
 /* USER BADGE */
 .user-badge{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer}
 .user-badge:hover{color:var(--text)}
@@ -249,6 +256,14 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <label>Email</label>
       <input id="signupEmail" type="email" placeholder="you@example.com" style="width:100%"/>
     </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>Company</label>
+      <select id="signupCompany" style="width:100%">
+        <option value="">Select company…</option>
+        <option value="DW">DW</option>
+        <option value="DDC">DDC</option>
+      </select>
+    </div>
     <div class="field" style="margin-bottom:16px">
       <label>Department</label>
       <input id="signupDept" type="text" placeholder="e.g. IRRIGATION" style="width:100%"/>
@@ -264,7 +279,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
 
 <nav class="nav">
   <div class="nav-inner">
-    <div class="nav-brand">Dawon <span>Payroll</span></div>
+    <div class="nav-brand">Dawon <span>Payroll</span><span id="companyNavBadge" style="display:none;font-size:13px;font-weight:400;color:var(--text2);margin-left:8px">—</span></div>
     <div class="nav-tabs">
       <div class="nav-tab active" onclick="goPage('emp')">Employee Management</div>
       <div class="nav-tab" onclick="goPage('att')">Attendance</div>
@@ -494,6 +509,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <thead><tr>
         <th>Email</th>
         <th>Role</th>
+        <th>Company</th>
         <th>Department</th>
         <th>Last Updated</th>
         <th></th>
@@ -545,6 +561,13 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <div class="field"><label>Biometrics ID</label><input id="f_id" type="text" placeholder="e.g. 1-52"/></div>
       <div class="field span2"><label>Name</label><input id="f_name" type="text" placeholder="LASTNAME, FIRSTNAME"/></div>
       <div class="field span2"><label>Department / Position</label><input id="f_dept" type="text" list="deptList" placeholder="Type or select department"/><datalist id="deptList"></datalist></div>
+      <div class="field"><label>Company</label>
+        <select id="f_company">
+          <option value="">— Not assigned —</option>
+          <option value="DW">DW</option>
+          <option value="DDC">DDC</option>
+        </select>
+      </div>
       <div class="field"><label>Daily Rate (₱)</label><input id="f_rate" type="number" min="0" step="0.01" placeholder="600"/></div>
       <div class="field"><label>Allowance (₱/period)</label><input id="f_allowance" type="number" min="0" step="0.01" placeholder="250"/></div>
       <div class="field"><label>Employment</label>
@@ -671,8 +694,9 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 
 let _supa = null;
 let _currentUser = null;
-let _userRole = null;   // 'admin' | 'manager' | 'viewer'
-let _userDept = null;   // null = all depts (admin), string = specific dept
+let _userRole = null;      // 'admin' | 'manager' | 'viewer'
+let _userDept = null;      // null = all depts, string = specific dept
+let _userCompany = null;   // null = all companies (admin), 'DW' | 'DDC'
 
 // Role helpers
 // Admin  → all depts, all permissions
@@ -686,13 +710,20 @@ function isViewer(){       return _userRole==='viewer'||!_userRole; }
 function canEdit(){        return _userRole==='admin'||_userRole==='manager'; }
 function canViewPayroll(){ return _userRole==='admin'||_userRole==='manager'; }
 function canDeletePeriod(){ return _userRole==='admin'; }
-function canAddDeleteEmp(){ return _userRole==='admin'; }
+function canAddDeleteEmp(){ return _userRole==='admin'||_userRole==='manager'; }
 
 // Dept filter: admin sees all, manager/viewer see only their dept
 function inMyDept(dept){   return isAdmin() || _userDept===dept; }
 function deptFilter(arr, deptKey){
   if(isAdmin()) return arr;
   return arr.filter(function(e){ return e[deptKey||'dept']===_userDept; });
+}
+
+// Company filter: admin sees all, others see only their company
+function inMyCompany(company){ return isAdmin() || !_userCompany || _userCompany===company; }
+function companyFilter(arr, companyKey){
+  if(isAdmin()||!_userCompany) return arr;
+  return arr.filter(function(e){ return e[companyKey||'company']===_userCompany; });
 }
 
 function getSupa(){
@@ -724,9 +755,10 @@ function showLoginBox(){
 }
 
 async function submitSignupRequest(){
-  const name  = document.getElementById('signupName').value.trim();
-  const email = document.getElementById('signupEmail').value.trim();
-  const dept  = document.getElementById('signupDept').value.trim();
+  const name    = document.getElementById('signupName').value.trim();
+  const email   = document.getElementById('signupEmail').value.trim();
+  const company = document.getElementById('signupCompany').value;
+  const dept    = document.getElementById('signupDept').value.trim();
   const errEl = document.getElementById('signupErr');
   const okEl  = document.getElementById('signupOk');
   const btn   = document.getElementById('signupBtn');
@@ -737,7 +769,7 @@ async function submitSignupRequest(){
   btn.disabled=true; btn.textContent='Sending…';
   try{
     const {error}=await getSupa().from('access_requests').insert({
-      name, email, dept: dept||null, status:'pending',
+      name, email, company: company||null, dept: dept||null, status:'pending',
       requested_at: new Date().toISOString()
     });
     if(error) throw error;
@@ -819,15 +851,15 @@ async function onSignedIn(user){
 async function loadUserRole(userId){
   try{
     const {data,error}=await getSupa()
-      .from('user_roles').select('role,dept').eq('user_id',userId).single();
+      .from('user_roles').select('role,dept,company').eq('user_id',userId).single();
     if(error){
       console.warn('loadUserRole error:', error.code, error.message);
-      // PGRST116 = no rows found (not assigned yet) → viewer
-      _userRole='viewer'; _userDept=null;
+      _userRole='viewer'; _userDept=null; _userCompany=null;
     } else if(data){
       _userRole=data.role;
       _userDept=data.dept||null;
-      console.log('✓ Role loaded:', _userRole, 'Dept:', _userDept||'ALL');
+      _userCompany=data.company||null;
+      console.log('✓ Role loaded:', _userRole, 'Dept:', _userDept||'ALL', 'Company:', _userCompany||'ALL');
     }
   }catch(e){
     console.error('loadUserRole exception:', e.message);
@@ -878,7 +910,7 @@ function applyRoleUI(){
   const usersTab=document.getElementById('usersTab');
   if(usersTab) usersTab.style.display=admin?'':'none';
 
-  // ── Role badge ──
+  // ── Role badge (user menu) ──
   const badge=document.getElementById('userBadge');
   if(badge&&!document.getElementById('roleChip')){
     const chip=document.createElement('span');
@@ -888,6 +920,22 @@ function applyRoleUI(){
     chip.textContent=roleLabel+((_userDept&&!admin)?' · '+_userDept:'');
     badge.appendChild(chip);
   }
+
+  // ── Company text next to nav brand ──
+  const navBadge=document.getElementById('companyNavBadge');
+  if(navBadge){
+    if(_userCompany){
+      navBadge.textContent=_userCompany;
+      navBadge.style.display='';
+    } else if(admin){
+      navBadge.style.display='none';
+    }
+  }
+
+  // ── Update page subtitles with company ──
+  const companyStr=_userCompany||'All Companies';
+  const empSub=document.querySelector('#page-emp .section-sub');
+  if(empSub) empSub.textContent='Dawon Development Corporation · '+companyStr;
 }
 
 function showUserMenu(){
@@ -985,7 +1033,7 @@ async function renderUsersPage(){
 
   try{
     // Fetch roles
-    const {data:roles,error:rErr}=await getSupa().from('user_roles').select('user_id,role,dept,updated_at');
+    const {data:roles,error:rErr}=await getSupa().from('user_roles').select('user_id,role,company,dept,updated_at');
     if(rErr) throw rErr;
 
     // Fetch all auth users via admin API (available to authenticated users via RPC workaround)
@@ -1018,9 +1066,10 @@ async function renderUsersPage(){
       return '<tr>'
         +'<td class="mono dim" style="font-size:11px">'+r.user_id.slice(0,12)+'…'+(isSelf?' <span style="font-size:10px;background:var(--green-bg);color:var(--green-text);border-radius:3px;padding:1px 5px">you</span>':'')+'</td>'
         +'<td style="font-weight:500;'+roleColors[r.role]+'">'+roleLabels[r.role]+'</td>'
-        +'<td class="dim">'+(r.dept||'<span style="color:var(--text3)">All Departments</span>')+'</td>'
+        +'<td class="dim">'+(r.company||'<span style="color:var(--text3)">All</span>')+'</td>'
+        +'<td class="dim">'+(r.dept||'<span style="color:var(--text3)">All Depts</span>')+'</td>'
         +'<td class="dim">'+updated+'</td>'
-        +'<td><button class="btn sm" data-uid="'+r.user_id+'" data-role="'+r.role+'" data-dept="'+(r.dept||'')+'" onclick="openEditUserRole(this.dataset.uid,this.dataset.role,this.dataset.dept)">'+(isSelf?'Edit (you)':'Edit')+'</button></td>'
+        +'<td><button class="btn sm" data-uid="'+r.user_id+'" data-role="'+r.role+'" data-company="'+(r.company||'')+'" data-dept="'+(r.dept||'')+'" onclick="openEditUserRole(this.dataset.uid,this.dataset.role,this.dataset.company,this.dataset.dept)">'+(isSelf?'Edit (you)':'Edit')+'</button></td>'
         +'</tr>';
     }).join('');
   }catch(err){
@@ -1035,13 +1084,14 @@ function openAddUserRole(){
   document.getElementById('ur_email').readOnly=false;
   document.getElementById('ur_email').placeholder='Paste user UUID from Supabase → Auth → Users';
   document.getElementById('ur_role').value='viewer';
+  document.getElementById('ur_company').value='';
   document.getElementById('ur_remove_btn').style.display='none';
   onRoleSelectChange();
   populateDeptSelect();
   document.getElementById('userRoleModal').style.display='flex';
 }
 
-function openEditUserRole(userId, role, dept){
+function openEditUserRole(userId, role, company, dept){
   _editingUserId=userId;
   document.getElementById('userRoleModalTitle').textContent='Edit Role';
   document.getElementById('ur_email').value=userId;
@@ -1049,46 +1099,38 @@ function openEditUserRole(userId, role, dept){
   document.getElementById('ur_role').value=role;
   document.getElementById('ur_remove_btn').style.display='';
   onRoleSelectChange();
-  populateDeptSelect();
-  setTimeout(function(){ document.getElementById('ur_dept').value=dept||''; },50);
+  setTimeout(function(){
+    document.getElementById('ur_company').value=company||'';
+  },50);
   document.getElementById('userRoleModal').style.display='flex';
 }
 
 function onRoleSelectChange(){
   const role=document.getElementById('ur_role').value;
-  document.getElementById('ur_dept_field').style.display=role==='admin'?'none':'';
-  document.getElementById('ur_admin_note').style.display=role==='admin'?'':'none';
+  const isAdminRole=role==='admin';
+  document.getElementById('ur_company_field').style.display=isAdminRole?'none':'';
+  document.getElementById('ur_admin_note').style.display=isAdminRole?'':'none';
 }
 
-function populateDeptSelect(){
-  const sel=document.getElementById('ur_dept');
-  const cur=sel.value;
-  sel.innerHTML='<option value="">Select department…</option>';
-  const depts=[...new Set(employees.map(function(e){return e.dept;}))].sort();
-  depts.forEach(function(d){
-    const o=document.createElement('option');
-    o.value=d; o.textContent=d;
-    if(d===cur) o.selected=true;
-    sel.appendChild(o);
-  });
-}
+function populateDeptSelect(){ /* dept field removed — company only */ }
 
 async function saveUserRole(){
   const userId=document.getElementById('ur_email').value.trim();
   const role=document.getElementById('ur_role').value;
+  const company=role==='admin'?null:(document.getElementById('ur_company').value||null);
   const dept=role==='admin'?null:(document.getElementById('ur_dept').value||null);
 
   if(!userId){ alert('Please enter a User ID.'); return; }
-  if(role!=='admin'&&!dept){ alert('Please select a department for Manager/Viewer roles.'); return; }
+  if(role!=='admin'&&!company){ alert('Please select a company (DW or DDC).'); return; }
 
   try{
     const {error}=await getSupa().from('user_roles').upsert(
-      {user_id:userId, role:role, dept:dept, updated_at:new Date().toISOString()},
+      {user_id:userId, role:role, company:company, dept:dept, updated_at:new Date().toISOString()},
       {onConflict:'user_id'}
     );
     if(error) throw error;
     document.getElementById('userRoleModal').style.display='none';
-    showToast('✓ Role saved — '+role+(dept?' ('+dept+')':''),'success');
+    showToast('✓ Role saved — '+role+(company?' ['+company+']':'')+(dept?' · '+dept:''),'success');
     renderUsersPage();
   }catch(err){
     alert('Error saving role: '+err.message);
@@ -1474,7 +1516,8 @@ function getEmpFiltered(){
   const type=document.getElementById('empType').value;
   const sort=document.getElementById('empSort').value;
   let d=[...employees];
-  // Dept-based access: admin=all, manager/viewer=own dept
+  // Company filter first, then dept filter
+  d=companyFilter(d,'company');
   d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
   if(type) d=d.filter(e=>e.type===type);
@@ -1506,7 +1549,7 @@ function renderEmp(){
     <td class="dim">${e.no}</td>
     <td class="mono dim">${e.id||'—'}</td>
     <td class="name">${e.name}</td>
-    <td class="dim">${e.dept}</td>
+    <td class="dim">${e.dept}${e.company?'<span style="margin-left:4px;font-size:10px;background:var(--blue-bg);color:var(--blue-text);border-radius:3px;padding:1px 5px">'+e.company+'</span>':''}</td>
     <td class="r">₱${e.rate.toLocaleString()}</td>
     <td class="r">₱${e.allowance.toLocaleString()}</td>
     <td><span class="badge ${e.type==='regular'?'reg':'con'}">${e.type==='regular'?'Regular':'Contractual'}</span></td>
@@ -1542,6 +1585,7 @@ function openEmpAdd(){
   document.getElementById('f_allowance').value=250;
   document.getElementById('f_type').value='contractual';
   document.getElementById('f_restday').value='sunday';
+  document.getElementById('f_company').value=_userCompany||'';
   document.getElementById('empModal').style.display='flex';
 }
 function openEmpEdit(uid){
@@ -1557,6 +1601,7 @@ function openEmpEdit(uid){
   document.getElementById('f_type').value=e.type||'contractual';
   document.getElementById('f_restday').value=e.restday||'sunday';
   document.getElementById('f_hire').value=e.hireDate||'';
+  document.getElementById('f_company').value=e.company||'';
   document.getElementById('empModal').style.display='flex';
 }
 function closeEmpModal(){document.getElementById('empModal').style.display='none';}
@@ -1566,7 +1611,9 @@ function saveEmp(){
   if(!name){alert('Please enter a name.');return;}
   const no=parseInt(document.getElementById('f_no').value)||0;
   const emp={no,id:document.getElementById('f_id').value.trim(),name:name.toUpperCase(),
-    dept:document.getElementById('f_dept').value.trim(),rate:parseFloat(document.getElementById('f_rate').value)||0,
+    dept:document.getElementById('f_dept').value.trim(),
+    company:document.getElementById('f_company').value||null,
+    rate:parseFloat(document.getElementById('f_rate').value)||0,
     allowance:parseFloat(document.getElementById('f_allowance').value)||0,
     type:document.getElementById('f_type').value,restday:document.getElementById('f_restday').value,
     hireDate:document.getElementById('f_hire').value};
@@ -1663,7 +1710,8 @@ function renderAtt(){
   const dept=document.getElementById('attDept').value;
   const sort=document.getElementById('attSort').value;
   let data=getAttProcessed(yr,mo,half);
-  // Dept-based access: admin=all, manager/viewer=own dept
+  // Company + dept filter
+  data=companyFilter(data,'company');
   data=deptFilter(data,'d');
   if(dept) data=data.filter(e=>e.d===dept);
   if(q) data=data.filter(e=>e.n.toLowerCase().includes(q));
@@ -2062,7 +2110,8 @@ function getPayFiltered(allPay){
   const type=document.getElementById('payType').value;
   const sort=document.getElementById('paySort').value;
   let d=[...allPay];
-  // Dept-based access: admin=all, manager/viewer=own dept
+  // Company filter first, then dept filter
+  d=companyFilter(d,'company');
   d=deptFilter(d,'dept');
   if(dept) d=d.filter(e=>e.dept===dept);
   if(type) d=d.filter(e=>e.type===type);
@@ -2520,9 +2569,16 @@ async function confirmXlsUpload(){
     const existingByName=attStore[k].find(function(a){ return nameMatch(a.n, newEmp.n); });
     if(existingByName){
       Object.assign(existingByName.a, newEmp.a);
+      // Sync company from employee profile if not set
+      if(!existingByName.company){
+        const empProfile=employees.find(function(e){ return nameMatch(e.name, newEmp.n); });
+        if(empProfile) existingByName.company=empProfile.company||null;
+      }
       updated++;
     } else {
-      attStore[k].push({...newEmp, yr, mo, half});
+      // Inherit company from employee profile
+      const empProfile=employees.find(function(e){ return nameMatch(e.name, newEmp.n); });
+      attStore[k].push({...newEmp, yr, mo, half, company: empProfile?empProfile.company||null:null});
       added++;
     }
   });
@@ -2699,12 +2755,13 @@ function handleEmpXlsUpload(event){
         if(nameIdx>=0 && rateIdx>=0){
           headerRow = i;
           colMap = {
-            no:    row.findIndex(function(v){ return v==='NO.'||v==='NO'; }),
-            bioId: row.findIndex(function(v){ return v.includes('BIO')||v==='ID'; }),
-            name:  nameIdx,
-            dept:  row.findIndex(function(v){ return v==='DESIGNATION'||v==='DEPT'||v==='DEPARTMENT'; }),
-            rate:  rateIdx,
-            allow: row.findIndex(function(v){ return v==='ALLOWANCE'||v==='ALLOW'; }),
+            no:      row.findIndex(function(v){ return v==='NO.'||v==='NO'; }),
+            bioId:   row.findIndex(function(v){ return v.includes('BIO')||v==='ID'; }),
+            name:    nameIdx,
+            dept:    row.findIndex(function(v){ return v==='DESIGNATION'||v==='DEPT'||v==='DEPARTMENT'; }),
+            rate:    rateIdx,
+            allow:   row.findIndex(function(v){ return v==='ALLOWANCE'||v==='ALLOW'; }),
+            company: row.findIndex(function(v){ return v==='COMPANY'||v==='CO'; }),
           };
           break;
         }
@@ -2726,10 +2783,12 @@ function handleEmpXlsUpload(event){
         if(no && isNaN(noNum)) continue; // skip non-numeric no rows
         const rate = parseFloat(rt)||0;
         const allow= parseFloat(al)||0;
+        const co = colMap.company>=0 ? String(row[colMap.company]||'').trim().toUpperCase() : '';
         parsed.push({
           no: no ? Math.round(noNum) : null,
           id: bio, name: nm.toUpperCase(),
-          dept: dep, rate: rate, allowance: allow
+          dept: dep, rate: rate, allowance: allow,
+          company: (co==='DW'||co==='DDC') ? co : null
         });
       }
       if(!parsed.length) throw new Error('No employee data found.');
@@ -2836,6 +2895,7 @@ async function confirmEmpUpload(){
         id: emp.id||'',
         name: emp.name,
         dept: emp.dept,
+        company: emp.company||_userCompany||null,
         rate: emp.rate,
         allowance: emp.allowance,
         type: 'contractual',
@@ -3147,14 +3207,18 @@ async function loadAttStoreLocal(){
         <option value="viewer">🔵 Viewer — Own dept: read-only</option>
       </select>
     </div>
-    <div class="field" id="ur_dept_field" style="margin-bottom:12px">
-      <label>Department</label>
-      <select id="ur_dept" style="width:100%">
-        <option value="">Select department…</option>
+    <div class="field" id="ur_company_field" style="margin-bottom:12px">
+      <label>Company</label>
+      <select id="ur_company" style="width:100%" onchange="onRoleSelectChange()">
+        <option value="">— Not restricted —</option>
+        <option value="DW">DW</option>
+        <option value="DDC">DDC</option>
       </select>
     </div>
+    <!-- dept field removed — company-only access control -->
+    <input type="hidden" id="ur_dept" value=""/>
     <div id="ur_admin_note" style="display:none;background:var(--red-bg);color:var(--red-text);border-radius:var(--radius);padding:8px 12px;font-size:12px">
-      ⚠ Admin has access to ALL departments and ALL features.
+      ⚠ Admin has access to ALL companies, ALL departments and ALL features.
     </div>
   </div>
   <div class="modal-footer">
