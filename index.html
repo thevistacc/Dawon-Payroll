@@ -3138,17 +3138,39 @@ async function deleteAttPeriod(){
   const label=yr+' '+monthNames[mo]+' '+(half===1?'1st Half (1~15)':'2nd Half (16~end)');
   const k=attKey(yr,mo,half);
   const count=(attStore[k]||[]).length;
-  if(count===0){ showToast(label+' — — No data', 'info'); return; }
-  if(!confirm(label+' attendance records for '+count+' employees. This cannot be undone.')) return;
+  if(!confirm((count>0?label+' — '+count+' employees':label+' (empty)')+'.\nDelete this period? This cannot be undone.')) return;
+
+  // 1. Clear memory
   delete attStore[k];
-  // Also remove version key if exists
   delete attStore[k+'_ver'];
-  markAttDirty(attKey(yr,mo,half));
-  await saveAttStore(attKey(yr,mo,half));
+
+  // 2. Clear _attCache
   invalidateAttCache(yr,mo,half);
+  _payCache=null;
+
+  // 3. Clear localStorage
+  try{
+    const raw=localStorage.getItem('att_store');
+    if(raw){
+      const stored=JSON.parse(raw);
+      delete stored[k];
+      delete stored[k+'_ver'];
+      localStorage.setItem('att_store', JSON.stringify(stored));
+    }
+  }catch(e){}
+
+  // 4. Delete from Supabase DB
+  try{
+    const sb=getSupa();
+    if(sb){
+      const {error}=await sb.from('attendance').delete().eq('period',k);
+      if(error) console.warn('DB delete error:', error.message);
+    }
+  }catch(e){ console.warn('DB delete exception:', e.message); }
+
   document.getElementById('attDateHeader').dataset.built='';
   renderAtt();
-  showToast('✓ '+label+' — '+count+' records deleted', 'info');
+  showToast('✓ '+label+' — deleted from memory, cache and DB', 'info');
 }
 
 function goToPayroll(){
