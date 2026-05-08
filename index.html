@@ -937,8 +937,8 @@ async function loadAccessRequests(){
         +'<td style="font-size:12px;'+statusClr+'">'+r.status+'</td>'
         +'<td style="white-space:nowrap">'
         +(r.status==='pending'?
-          '<button class="btn sm primary" onclick="approveRequest(''+r.id+'',''+r.email+'',''+(r.dept||'')+'')">Approve</button>'
-          +'<button class="btn sm danger" style="margin-left:4px" onclick="denyRequest(''+r.id+'')">Deny</button>'
+          '<button class="btn sm primary" data-id="'+r.id+'" data-email="'+r.email+'" data-dept="'+(r.dept||'')+'" onclick="approveRequest(this.dataset.id,this.dataset.email,this.dataset.dept)">Approve</button>'
+          +'<button class="btn sm danger" style="margin-left:4px" data-id="'+r.id+'" onclick="denyRequest(this.dataset.id)">Deny</button>'
           :'<span style="font-size:11px;color:var(--text3)">—</span>')
         +'</td></tr>';
     }).join('');
@@ -2947,10 +2947,10 @@ document.addEventListener('DOMContentLoaded',async()=>{
   if(SUPA_URL==='YOUR_SUPABASE_URL'){
     // Supabase not configured — show login screen with setup notice
     // but also add a "Continue without login" button for local use
-    const sub=document.querySelector('.login-sub');
+    const sub=document.querySelector('#loginBoxMain .login-sub');
     if(sub){ sub.textContent='⚠ Supabase not configured — running in local mode'; sub.style.color='var(--amber-text)'; }
     // Add local mode button
-    const box=document.querySelector('.login-box');
+    const box=document.getElementById('loginBoxMain');
     if(box&&!document.getElementById('localModeBtn')){
       const localBtn=document.createElement('button');
       localBtn.id='localModeBtn';
