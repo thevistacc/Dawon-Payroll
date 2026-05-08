@@ -374,6 +374,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <button class="btn danger" onclick="deleteAttPeriod()" title="Delete all data for the selected period">🗑 Delete Period</button>
       <input id="xlsUploadInput" type="file" accept=".xls,.xlsx" multiple style="display:none" onchange="handleXlsUpload(event)"/>
       <button class="btn primary" onclick="openAttInput()">+ Add Entry</button>
+      <button class="btn" onclick="exportAttExcel()">⬇ Export Excel</button>
       <button class="btn" id="goPayrollBtn" onclick="goToPayroll()" style="background:var(--green-bg);color:var(--green-text);border-color:var(--green);display:none">💰 Calculate Payroll</button>
     </div>
   </div>
@@ -450,6 +451,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
         <option value="1">1st Half (1~15)</option>
       </select>
       <button class="btn" onclick="printPayroll()">🖨 Print</button>
+      <button class="btn" onclick="exportPayExcel()">⬇ Export Excel</button>
     </div>
   </div>
   <div class="metrics" id="pay-metrics"></div>
@@ -782,6 +784,111 @@ function setSyncState(state){ // 'synced' | 'syncing' | 'error'
   if(!dot||!lbl) return;
   dot.className='sync-dot'+(state==='syncing'?' syncing':state==='error'?' error':'');
   lbl.textContent=state==='syncing'?'Saving…':state==='error'?'Offline':' Synced';
+}
+
+// ── EXPORT ──
+
+function exportAttExcel(){
+  const yr=curAttYr, mo=curAttMo, half=curAttHalf;
+  const {s,e}=getHalfDays(yr,mo,half);
+  const allDays=[];for(let d=s;d<=e;d++) allDays.push(d);
+  const monthNames=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const label=yr+'-'+monthNames[mo]+' '+(half===1?'1st(1~15)':'2nd(16~end)');
+
+  let data=getAttProcessed(yr,mo,half);
+  // Apply current filters
+  const coFilter=document.getElementById('attCompany')&&document.getElementById('attCompany').value;
+  if(isAdmin()&&coFilter) data=data.filter(function(e){return e.company===coFilter;});
+  else data=companyFilter(data,'company');
+  data=deptFilter(data,'d');
+  const q=(document.getElementById('attQ').value||'').toLowerCase();
+  if(q) data=data.filter(function(e){return e.n.toLowerCase().includes(q);});
+
+  // Header row
+  const headers=['NAME','DEPARTMENT','COMPANY','DAYS',...allDays.map(function(d){
+    const dow=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(yr,mo-1,d).getDay()];
+    return mo+'/'+d+'('+dow+')';
+  }),'TOTAL H','OT H','SUN REG H','SUN OT H','NIGHT H','ABSENT'];
+
+  const rows=data.map(function(emp){
+    const dayHours=allDays.map(function(d){
+      const r=emp.dayDetail&&emp.dayDetail[d];
+      return r&&r.worked>0?r.worked:'';
+    });
+    return [
+      emp.n, emp.d||'', emp.company||'', emp.workedDays||0,
+      ...dayHours,
+      emp.regH+emp.rhH+emp.snwhH+emp.swhH+emp.otH+emp.sunH,
+      emp.otH||0, emp.sunRegH||0, emp.sunOtH||0, emp.ndH||0, emp.absent||0
+    ];
+  });
+
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+
+  // Column widths
+  ws['!cols']=[{wch:22},{wch:20},{wch:8},{wch:5},...allDays.map(function(){return{wch:7};}),...[{wch:8},{wch:6},{wch:8},{wch:8},{wch:8},{wch:7}]];
+
+  XLSX.utils.book_append_sheet(wb,ws,'Attendance');
+  XLSX.writeFile(wb,'Attendance_'+label+'.xlsx');
+  showToast('✓ Attendance exported','success');
+}
+
+function exportPayExcel(){
+  const yr=curPayYr, mo=curPayMo, half=curPayHalf;
+  const monthNames=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const label=yr+'-'+monthNames[mo]+' '+(half===1?'1st(1~15)':'2nd(16~end)');
+
+  if(!_payCache) _payCache=getPayData();
+  let data=getPayFiltered(_payCache);
+
+  const headers=[
+    'NAME','DEPARTMENT','COMPANY','TYPE','DAILY RATE',
+    'BASIC PAY','OT PAY','SUN REG','SUN OT','NIGHT PAY','RH PAY','SNWH PAY',
+    'ALLOWANCE','GROSS PAY',
+    'SSS','PHILHEALTH','PAG-IBIG','WHT','TOTAL DEDUCT',
+    'NET PAY'
+  ];
+
+  const rows=data.map(function(e){
+    return [
+      e.name, e.dept||'', e.company||'', e.type||'',
+      e.dailyRate||0,
+      e.basicPay||0, e.otPay||0, e.sunRegPay||0, e.sunOtPay||0,
+      e.ndPay||0, e.rhPay||0, e.snwhPay||0,
+      e.allowance||0, e.grossPay||0,
+      e.sss||0, e.philHealth||0, e.pagIBIG||0, e.wht||0, e.totalDeduct||0,
+      e.netPay||0
+    ];
+  });
+
+  // Totals row
+  const totals=['TOTAL','','','','',
+    ...Array(14).fill(0).map(function(_,i){
+      return rows.reduce(function(sum,r){return sum+(+r[5+i]||0);},0);
+    })
+  ];
+
+  const wb2=XLSX.utils.book_new();
+  const ws2=XLSX.utils.aoa_to_sheet([headers,...rows,totals]);
+
+  // Format numbers
+  const numFmt='#,##0.00';
+  const numCols=[4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19];
+  [...rows,totals].forEach(function(row,ri){
+    numCols.forEach(function(ci){
+      const cell=XLSX.utils.encode_cell({r:ri+1,c:ci});
+      if(ws2[cell]) ws2[cell].t='n';
+    });
+  });
+
+  ws2['!cols']=[{wch:22},{wch:20},{wch:8},{wch:12},{wch:10},
+    {wch:10},{wch:8},{wch:8},{wch:8},{wch:8},{wch:8},{wch:10},
+    {wch:10},{wch:10},{wch:8},{wch:10},{wch:8},{wch:8},{wch:12},{wch:10}];
+
+  XLSX.utils.book_append_sheet(wb2,ws2,'Payroll');
+  XLSX.writeFile(wb2,'Payroll_'+label+'.xlsx');
+  showToast('✓ Payroll exported','success');
 }
 
 // ── AUTH ──
