@@ -970,10 +970,15 @@ function applyRoleUI(){
   const usersTab=document.getElementById('usersTab');
   if(usersTab) usersTab.style.display=admin?'':'none';
 
-  // ── Att/Pay company dropdowns: admin only ──
+  // ── Att/Pay company dropdowns: always show full options ──
+  // Filter logic in renderAtt/getPayFiltered handles access control
   ['attCompany','payCompany'].forEach(function(id){
     const sel=document.getElementById(id);
-    if(sel) sel.style.display=admin?'':'none';
+    if(!sel||sel.options.length>1) return; // already populated
+    sel.innerHTML=
+      '<option value="">All Companies</option>'+
+      '<option value="DW">DW</option>'+
+      '<option value="DDC">DDC</option>';
   });
 
   // ── Company filter ──
