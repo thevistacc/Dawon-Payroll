@@ -306,7 +306,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
   <div class="section-head">
     <div>
       <div class="section-title">Employee Management</div>
-      <div class="section-sub">Dawon Development Corporation · Employee Registration & Management</div>
+      <div class="section-sub">Employee Registration & Management</div>
     </div>
     <button class="btn primary" onclick="openEmpAdd()">+ Add Employee</button>
   </div>
@@ -992,7 +992,10 @@ function applyRoleUI(){
 
   // ── Page subtitle ──
   const empSub=document.querySelector('#page-emp .section-sub');
-  if(empSub) empSub.textContent='Dawon Development Corporation · '+(_userCompany||'All Companies');
+  if(empSub){
+    if(isAdmin()) empSub.textContent='';
+    else empSub.textContent=_userCompany||'';
+  }
 }
 
 async function loadUserRole(userId){
