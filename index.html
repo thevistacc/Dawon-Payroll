@@ -960,26 +960,9 @@ function applyRoleUI(){
   const usersTab=document.getElementById('usersTab');
   if(usersTab) usersTab.style.display=admin?'':'none';
 
-  // ── Company filter in emp page ──
+  // ── Company filter: always visible, controlled by getEmpFiltered ──
   const empCoSel=document.getElementById('empCompany');
-  if(empCoSel){
-    empCoSel.style.display=''; // always show
-    if(!admin){
-      // Non-admin: lock to their company, no 미지정 option
-      empCoSel.innerHTML='<option value="">'+(_userCompany||'All Companies')+'</option>';
-      empCoSel.disabled=true;
-    } else {
-      // Admin: full options
-      empCoSel.disabled=false;
-      if(empCoSel.options.length<4){
-        empCoSel.innerHTML=
-          '<option value="">All Companies</option>'+
-          '<option value="DW">DW</option>'+
-          '<option value="DDC">DDC</option>'+
-          '<option value="__none__">미지정</option>';
-      }
-    }
-  }
+  if(empCoSel){ empCoSel.style.display=''; empCoSel.disabled=false; }
 
   // ── User badge (top right) ──
   const badge=document.getElementById('userBadge');
