@@ -1519,7 +1519,8 @@ function getEffectiveRate(emp, yr, mo, half){
 // ═══════════════════════════════════════
 // ─ Convenience: refresh dept lists + employee table
 function refreshEmp(){
-  refreshEmp();
+  initDepts();
+  renderEmp();
 }
 
 let _lastDeptKey='';
