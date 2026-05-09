@@ -236,9 +236,31 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     <button class="btn primary" style="width:100%;height:40px;font-size:14px" onclick="doLogin()" id="loginBtn">
       Sign In
     </button>
-    <div style="text-align:center;margin-top:12px">
+    <div style="text-align:center;margin-top:8px">
+      <button onclick="showForgotPw()" style="background:none;border:none;font-size:12px;color:var(--text3);cursor:pointer;text-decoration:underline">비밀번호를 잊으셨나요?</button>
+    </div>
+    <div style="text-align:center;margin-top:8px">
       <span style="font-size:12px;color:var(--text3)">No account? </span>
       <button onclick="showSignupRequest()" style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">Request Access</button>
+    </div>
+  </div>
+
+  <!-- Forgot Password Panel -->
+  <div class="login-box" id="loginBoxForgot" style="display:none">
+    <div class="login-logo">Dawon <span>Payroll</span></div>
+    <div class="login-sub">비밀번호 재설정 링크를 이메일로 보내드립니다</div>
+    <div class="login-err" id="forgotErr"></div>
+    <div class="login-ok" id="forgotOk" style="display:none;background:var(--green-bg);color:var(--green-text);border-radius:var(--radius);padding:8px 12px;font-size:12px;margin-bottom:12px"></div>
+    <div class="field" style="margin-bottom:16px">
+      <label>Email</label>
+      <input id="forgotEmail" type="email" placeholder="you@example.com" style="width:100%"
+             onkeydown="if(event.key==='Enter')submitForgotPw()"/>
+    </div>
+    <button class="btn primary" style="width:100%;height:40px;font-size:14px" onclick="submitForgotPw()" id="forgotBtn">
+      재설정 링크 보내기
+    </button>
+    <div style="text-align:center;margin-top:12px">
+      <button onclick="showLoginBox()" style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">← 로그인으로 돌아가기</button>
     </div>
   </div>
 
@@ -859,6 +881,7 @@ function showSignupRequest(){
 function showLoginBox(){
   document.getElementById('loginBoxSignup').style.display='none';
   document.getElementById('loginBoxMFA').style.display='none'; // ← 추가
+  document.getElementById('loginBoxForgot').style.display='none';
   document.getElementById('loginBoxMain').style.display='';
   document.getElementById('loginErr').style.display='none';
 }
@@ -890,6 +913,37 @@ async function submitSignupRequest(){
     errEl.style.display='';
   }
   btn.disabled=false; btn.textContent='Send Request';
+}
+
+function showForgotPw(){
+  document.getElementById('loginBoxMain').style.display='none';
+  document.getElementById('forgotErr').style.display='none';
+  document.getElementById('forgotOk').style.display='none';
+  document.getElementById('forgotEmail').value='';
+  document.getElementById('loginBoxForgot').style.display='';
+}
+
+async function submitForgotPw(){
+  const email = document.getElementById('forgotEmail').value.trim();
+  const errEl = document.getElementById('forgotErr');
+  const okEl  = document.getElementById('forgotOk');
+  const btn   = document.getElementById('forgotBtn');
+  errEl.style.display='none'; okEl.style.display='none';
+  if(!email){ errEl.textContent='이메일을 입력해주세요.'; errEl.style.display=''; return; }
+  btn.disabled=true; btn.textContent='전송 중…';
+  try{
+    const {error} = await getSupa().auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.href
+    });
+    if(error) throw error;
+    okEl.textContent='✓ 재설정 링크를 보냈습니다. 이메일을 확인해주세요.';
+    okEl.style.display='';
+    document.getElementById('forgotEmail').value='';
+  }catch(e){
+    errEl.textContent='오류: '+e.message;
+    errEl.style.display='';
+  }
+  btn.disabled=false; btn.textContent='재설정 링크 보내기';
 }
 
 // ★ 수정 3: doLogin 교체 + MFA 함수 3개 추가
@@ -2492,7 +2546,20 @@ document.addEventListener('DOMContentLoaded',async()=>{
     return;
   }
   const {data:{session}}=await getSupa().auth.getSession();
-  if(session){ await onSignedIn(session.user); }
+  if(session){
+    // 비밀번호 재설정 링크로 돌아온 경우 감지
+    if(session.user && session.user.recovery_sent_at){
+      const hash = window.location.hash;
+      if(hash.includes('type=recovery')){
+        document.getElementById('loginScreen').style.display='none';
+        document.getElementById('changePwModal').style.display='flex';
+        document.getElementById('changePwNew').focus();
+        _currentUser = session.user;
+        return;
+      }
+    }
+    await onSignedIn(session.user);
+  }
 });
 
 async function loadEmployeesLocal(){
