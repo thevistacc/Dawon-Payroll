@@ -237,7 +237,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       Sign In
     </button>
     <div style="text-align:center;margin-top:8px">
-      <button onclick="showForgotPw()" style="background:none;border:none;font-size:12px;color:var(--text3);cursor:pointer;text-decoration:underline">비밀번호를 잊으셨나요?</button>
+      <button onclick="showForgotPw()" style="background:none;border:none;font-size:12px;color:var(--text3);cursor:pointer;text-decoration:underline">Forgot your password?</button>
     </div>
     <div style="text-align:center;margin-top:8px">
       <span style="font-size:12px;color:var(--text3)">No account? </span>
@@ -248,7 +248,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
   <!-- Forgot Password Panel -->
   <div class="login-box" id="loginBoxForgot" style="display:none">
     <div class="login-logo">Dawon <span>Payroll</span></div>
-    <div class="login-sub">비밀번호 재설정 링크를 이메일로 보내드립니다</div>
+    <div class="login-sub">We'll send a password reset link to your email</div>
     <div class="login-err" id="forgotErr"></div>
     <div class="login-ok" id="forgotOk" style="display:none;background:var(--green-bg);color:var(--green-text);border-radius:var(--radius);padding:8px 12px;font-size:12px;margin-bottom:12px"></div>
     <div class="field" style="margin-bottom:16px">
@@ -257,10 +257,10 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
              onkeydown="if(event.key==='Enter')submitForgotPw()"/>
     </div>
     <button class="btn primary" style="width:100%;height:40px;font-size:14px" onclick="submitForgotPw()" id="forgotBtn">
-      재설정 링크 보내기
+      Send Reset Link
     </button>
     <div style="text-align:center;margin-top:12px">
-      <button onclick="showLoginBox()" style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">← 로그인으로 돌아가기</button>
+      <button onclick="showLoginBox()" style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">← Back to Sign In</button>
     </div>
   </div>
 
@@ -298,24 +298,24 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     </div>
   </div>
 
-  <!-- ★ 수정 1: MFA 코드 입력 패널 -->
+  <!-- MFA code entry panel -->
   <div class="login-box" id="loginBoxMFA" style="display:none">
     <div class="login-logo">Dawon <span>Payroll</span></div>
-    <div class="login-sub">2단계 인증 코드를 입력하세요</div>
+    <div class="login-sub">Enter your two-factor authentication code</div>
     <div class="login-err" id="mfaErr"></div>
     <div class="field" style="margin-bottom:16px">
       <label>Authenticator Code</label>
       <input id="mfaCode" type="text" inputmode="numeric"
-             placeholder="6자리 코드" maxlength="6"
+             placeholder="6-digit code" maxlength="6"
              style="width:100%;letter-spacing:8px;font-size:20px;text-align:center"
              onkeydown="if(event.key==='Enter')doMFAVerify()"/>
     </div>
     <button class="btn primary" style="width:100%;height:40px;font-size:14px"
-            onclick="doMFAVerify()" id="mfaBtn">확인</button>
+            onclick="doMFAVerify()" id="mfaBtn">Verify</button>
     <div style="text-align:center;margin-top:12px">
       <button onclick="showLoginBox()"
               style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">
-        ← 로그인으로 돌아가기
+        ← Back to Sign In
       </button>
     </div>
   </div>
@@ -362,7 +362,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <option value="">All Companies</option>
       <option value="DW">DW</option>
       <option value="DDC">DDC</option>
-      <option value="__none__">미지정</option>
+      <option value="__none__">Unassigned</option>
     </select>
     <select id="empDept" onchange="renderEmp()"><option value="">Total Department</option></select>
     <select id="empType" onchange="renderEmp()">
@@ -877,10 +877,10 @@ function showSignupRequest(){
   document.getElementById('signupOk').style.display='none';
 }
 
-// ★ 수정 2: showLoginBox에 MFA 패널 숨기기 추가
+// ★ Change 2: hide MFA panel in showLoginBox
 function showLoginBox(){
   document.getElementById('loginBoxSignup').style.display='none';
-  document.getElementById('loginBoxMFA').style.display='none'; // ← 추가
+  document.getElementById('loginBoxMFA').style.display='none';
   document.getElementById('loginBoxForgot').style.display='none';
   document.getElementById('loginBoxMain').style.display='';
   document.getElementById('loginErr').style.display='none';
@@ -929,24 +929,24 @@ async function submitForgotPw(){
   const okEl  = document.getElementById('forgotOk');
   const btn   = document.getElementById('forgotBtn');
   errEl.style.display='none'; okEl.style.display='none';
-  if(!email){ errEl.textContent='이메일을 입력해주세요.'; errEl.style.display=''; return; }
-  btn.disabled=true; btn.textContent='전송 중…';
+  if(!email){ errEl.textContent='Please enter your email.'; errEl.style.display=''; return; }
+  btn.disabled=true; btn.textContent='Sending…';
   try{
     const {error} = await getSupa().auth.resetPasswordForEmail(email, {
       redirectTo: window.location.href
     });
     if(error) throw error;
-    okEl.textContent='✓ 재설정 링크를 보냈습니다. 이메일을 확인해주세요.';
+    okEl.textContent='✓ Reset link sent! Please check your email.';
     okEl.style.display='';
     document.getElementById('forgotEmail').value='';
   }catch(e){
-    errEl.textContent='오류: '+e.message;
+    errEl.textContent='Error: '+e.message;
     errEl.style.display='';
   }
-  btn.disabled=false; btn.textContent='재설정 링크 보내기';
+  btn.disabled=false; btn.textContent='Send Reset Link';
 }
 
-// ★ 수정 3: doLogin 교체 + MFA 함수 3개 추가
+// ★ Change 3: replace doLogin + add MFA functions
 let _mfaFactorId = null;
 let _mfaChallengeId = null;
 
@@ -969,10 +969,10 @@ async function doLogin(){
     btn.disabled=false; btn.textContent='Sign In';
     if(error){ errEl.textContent=error.message; errEl.style.display=''; return; }
 
-    // MFA 등록 여부 확인
+    // Check if MFA is enrolled
     const {data: aal} = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
     if(aal.nextLevel === 'aal2'){
-      // MFA 등록된 계정 → 코드 입력 화면으로 전환
+      // MFA enrolled → switch to code entry screen
       const {data: factors} = await sb.auth.mfa.listFactors();
       const totpFactor = factors.totp[0];
       if(totpFactor){
@@ -986,7 +986,7 @@ async function doLogin(){
         setTimeout(()=>document.getElementById('mfaCode').focus(), 100);
       }
     } else {
-      // MFA 없는 계정 → 바로 로그인
+      // No MFA → sign in directly
       await onSignedIn(data.user);
     }
   }catch(err){
@@ -1000,39 +1000,38 @@ async function doMFAVerify(){
   const code  = document.getElementById('mfaCode').value.trim();
   const errEl = document.getElementById('mfaErr');
   const btn   = document.getElementById('mfaBtn');
-  if(code.length !== 6){ errEl.textContent='6자리 코드를 입력하세요.'; errEl.style.display=''; return; }
+  if(code.length !== 6){ errEl.textContent='Please enter a 6-digit code.'; errEl.style.display=''; return; }
   errEl.style.display='none';
-  btn.disabled=true; btn.textContent='확인 중…';
+  btn.disabled=true; btn.textContent='Verifying…';
   try{
     const {error} = await getSupa().auth.mfa.verify({
       factorId: _mfaFactorId, challengeId: _mfaChallengeId, code
     });
-    btn.disabled=false; btn.textContent='확인';
+    btn.disabled=false; btn.textContent='Verify';
     if(error){
-      // challenge 만료(5분) 감지 → 재로그인 안내
       const expired = error.message&&(error.message.includes('expired')||error.message.includes('MFA challenge'));
       if(expired){
-        errEl.innerHTML='인증 시간이 만료되었습니다.<br><a href="#" onclick="showLoginBox();return false;" style="color:var(--blue)">다시 로그인해주세요</a>';
+        errEl.innerHTML='Session expired. <a href="#" onclick="showLoginBox();return false;" style="color:var(--blue)">Please sign in again.</a>';
       } else {
-        errEl.textContent='코드가 잘못되었습니다: '+error.message;
+        errEl.textContent='Invalid code: '+error.message;
       }
       errEl.style.display=''; return;
     }
     const {data:{user}} = await getSupa().auth.getUser();
     await onSignedIn(user);
   }catch(err){
-    btn.disabled=false; btn.textContent='확인';
+    btn.disabled=false; btn.textContent='Verify';
     errEl.textContent=err.message; errEl.style.display='';
   }
 }
 
 async function openMFASetup(){
   document.getElementById('userMenuModal').style.display='none';
-  showToast('QR 코드 생성 중…','info');
+  showToast('Generating QR code…','info');
   try{
     const {data: factors} = await getSupa().auth.mfa.listFactors();
     if(factors.totp.length > 0){
-      if(!confirm('이미 2단계 인증이 설정되어 있습니다.\n재설정하려면 확인을 클릭하세요.')) return;
+      if(!confirm('Two-factor authentication is already set up.\nClick OK to reconfigure.')) return;
       await getSupa().auth.mfa.unenroll({factorId: factors.totp[0].id});
     }
     const {data: enrollData, error} = await getSupa().auth.mfa.enroll({
@@ -1044,18 +1043,18 @@ async function openMFASetup(){
     overlay.innerHTML = `
       <div class="modal" style="max-width:380px;text-align:center" onclick="event.stopPropagation()">
         <div class="modal-header">
-          <h3>🔐 2단계 인증 설정</h3>
+          <h3>🔐 Two-Factor Authentication Setup</h3>
           <button class="modal-close" onclick="this.closest('.overlay').remove()">✕</button>
         </div>
         <div class="modal-body">
           <p style="font-size:12px;color:var(--text2);margin-bottom:12px">
-            Google Authenticator 또는 Authy 앱으로 QR 코드를 스캔하세요</p>
+            Scan the QR code with Google Authenticator or Authy</p>
           <img src="${enrollData.totp.qr_code}" style="width:200px;height:200px;border:1px solid var(--border);border-radius:8px"/>
           <div style="font-size:11px;color:var(--text3);margin:10px 0">
-            수동 입력 키: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">${enrollData.totp.secret}</code>
+            Manual entry key: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">${enrollData.totp.secret}</code>
           </div>
           <div class="field" style="margin-top:14px;text-align:left">
-            <label>앱에 표시된 6자리 코드 입력</label>
+            <label>Enter the 6-digit code shown in your app</label>
             <input id="mfaSetupCode" type="text" inputmode="numeric" maxlength="6"
                    placeholder="000000"
                    style="text-align:center;letter-spacing:6px;font-size:18px;width:100%"
@@ -1063,24 +1062,24 @@ async function openMFASetup(){
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn" onclick="this.closest('.overlay').remove()">취소</button>
-          <button class="btn primary" onclick="verifyMFASetup('${enrollData.id}',this.closest('.overlay'))">등록 완료</button>
+          <button class="btn" onclick="this.closest('.overlay').remove()">Cancel</button>
+          <button class="btn primary" onclick="verifyMFASetup('${enrollData.id}',this.closest('.overlay'))">Confirm Setup</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
-  }catch(e){ showToast('오류: '+e.message,'warn'); }
+  }catch(e){ showToast('Error: '+e.message,'warn'); }
 }
 
 async function verifyMFASetup(factorId, overlay){
   const code = document.getElementById('mfaSetupCode').value.trim();
-  if(code.length !== 6){ alert('6자리 코드를 입력하세요.'); return; }
+  if(code.length !== 6){ alert('Please enter a 6-digit code.'); return; }
   try{
     const {data: ch}  = await getSupa().auth.mfa.challenge({factorId});
     const {error}     = await getSupa().auth.mfa.verify({factorId, challengeId:ch.id, code});
-    if(error){ alert('코드 오류: '+error.message); return; }
+    if(error){ alert('Invalid code: '+error.message); return; }
     overlay.remove();
-    showToast('✓ 2단계 인증 설정 완료! 다음 로그인부터 적용됩니다.','success');
-  }catch(e){ alert('오류: '+e.message); }
+    showToast('✓ Two-factor authentication enabled! Takes effect on next login.','success');
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 async function onSignedIn(user){
@@ -1131,7 +1130,7 @@ async function submitChangePw(){
   const errEl=document.getElementById('changePwErr');
   const btn=document.getElementById('changePwBtn');
   errEl.style.display='none';
-  if(!newPw||newPw.length<6){ errEl.textContent='Password must be at least 6 characters.'; errEl.style.display=''; return; }
+  if(!newPw||newPw.length<8){ errEl.textContent='Password must be at least 8 characters.'; errEl.style.display=''; return; }
   if(newPw!==confirm){ errEl.textContent='Passwords do not match.'; errEl.style.display=''; return; }
   btn.disabled=true; btn.textContent='Saving…';
   try{
@@ -1169,10 +1168,10 @@ function applyRoleUI(){
     empCoSel.style.display='';
     if(isAdmin()){
       empCoSel.disabled=false;
-      empCoSel.innerHTML='<option value="">All Companies</option><option value="DW">DW</option><option value="DDC">DDC</option><option value="__none__">미지정</option>';
+      empCoSel.innerHTML='<option value="">All Companies</option><option value="DW">DW</option><option value="DDC">DDC</option><option value="__none__">Unassigned</option>';
     } else {
       empCoSel.disabled=false;
-      empCoSel.innerHTML=(_userCompany?'<option value="'+_userCompany+'">'+_userCompany+'</option>':'')+'<option value="__none__">미지정</option>';
+      empCoSel.innerHTML=(_userCompany?'<option value="'+_userCompany+'">'+_userCompany+'</option>':'')+'<option value="__none__">Unassigned</option>';
     }
   }
   const badge=document.getElementById('userBadge');
@@ -2547,7 +2546,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   }
   const {data:{session}}=await getSupa().auth.getSession();
   if(session){
-    // 비밀번호 재설정 링크로 돌아온 경우 감지
+    // Check if returning from password reset link
     if(session.user && session.user.recovery_sent_at){
       const hash = window.location.hash;
       if(hash.includes('type=recovery')){
@@ -2712,8 +2711,8 @@ async function loadAttStoreLocal(){
   <div class="modal-body" style="padding-bottom:8px">
     <div id="userMenuInfo" style="font-size:12px;color:var(--text2);padding:4px 0 12px;border-bottom:1px solid var(--border);margin-bottom:8px"></div>
     <button class="btn" style="width:100%;margin-bottom:8px;justify-content:flex-start" onclick="closeUserMenuOpenPw()">🔑 Change Password</button>
-    <!-- ★ MFA 설정 버튼 -->
-    <button class="btn" style="width:100%;margin-bottom:8px;justify-content:flex-start" onclick="openMFASetup()">🔐 2단계 인증 설정</button>
+    <!-- ★ MFA setup button -->
+    <button class="btn" style="width:100%;margin-bottom:8px;justify-content:flex-start" onclick="openMFASetup()">🔐 Two-Factor Authentication</button>
     <button id="userMenuUsersBtn" class="btn" style="width:100%;margin-bottom:8px;justify-content:flex-start;display:none" onclick="document.getElementById('userMenuModal').style.display='none';goPage('users')">👥 Manage Users</button>
     <button class="btn danger" style="width:100%;justify-content:flex-start" onclick="doSignOut()">↩ Sign Out</button>
   </div>
@@ -2726,7 +2725,7 @@ async function loadAttStoreLocal(){
   <div class="modal-header"><h3>Change Password</h3><button class="modal-close" onclick="document.getElementById('changePwModal').style.display='none'">✕</button></div>
   <div class="modal-body">
     <div class="login-err" id="changePwErr" style="display:none;margin-bottom:12px"></div>
-    <div class="field" style="margin-bottom:12px"><label>New Password</label><input id="changePwNew" type="password" placeholder="minimum 6 characters" style="width:100%"/></div>
+    <div class="field" style="margin-bottom:12px"><label>New Password</label><input id="changePwNew" type="password" placeholder="minimum 8 characters" style="width:100%" minlength="8"/></div>
     <div class="field" style="margin-bottom:4px"><label>Confirm Password</label><input id="changePwConfirm" type="password" placeholder="re-enter password" style="width:100%" onkeydown="if(event.key==='Enter')submitChangePw()"/></div>
   </div>
   <div class="modal-footer">
