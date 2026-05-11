@@ -397,7 +397,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
   <div class="section-head">
     <div>
       <div class="section-title">Attendance</div>
-      <div class="section-sub" id="attPeriodLabel">Hours · OT · Night Diff · Meal break 1h deducted · Rounded down 30min</div>
+      <div class="section-sub" id="attPeriodLabel">Hours · OT · Night Diff · Meal break 1h deducted · Rounded up 30min</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select id="attYear" onchange="onAttPeriodChange()" style="height:34px;font-size:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px"></select>
@@ -1716,7 +1716,7 @@ function peso(v){return '₱'+v.toLocaleString('en-PH',{minimumFractionDigits:2,
 const STD_H=8, MEAL_BREAK=1; // 1h unpaid meal break per day
 
 // Round to nearest 0.5h
-function roundHalf(h){ return Math.floor(h*2)/2; } // Round down to nearest 0.5h
+function roundHalf(h){ return Math.ceil(h*2)/2; } // Round UP to nearest 0.5h
 
 // Dynamic version used by processAtt
 function calcDayHoursForDate(year, month, day, ti, to){
@@ -2123,7 +2123,7 @@ function renderAtt(){
   const monthNames=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','1Jan','1Feb'];
   document.getElementById('attPeriodLabel').textContent=
     yr+' '+monthNames[mo]+' '+(half===1?'1st Half (1~15)':'2nd Half ('+s+'~'+e+')')+
-    ' · Meal 1h deducted · Rounded down 30min';
+    ' · Meal 1h deducted · Rounded up 30min';
 
   // Holiday banner — pre-compute all day types once
   const _attDayTypes={};
