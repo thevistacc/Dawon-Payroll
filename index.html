@@ -1845,46 +1845,37 @@ function setExtra(uid, val){
 
 function onExtraInput(uid, inputEl){
   const val = parseFloat(inputEl.value) || 0;
-
-  // Keep the base gross (without any extra) on first call
-  if(!_payCache) return;
-  const e = _payCache.find(function(x){ return x.uid === uid; });
-  if(!e) return;
-
-  // Store the base gross (before any extra) the first time
-  if(e._baseGross === undefined) e._baseGross = +(e.grossPay - (e.extra||0)).toFixed(2);
-
   setExtra(uid, val);
-  e.extra = val;
 
-  // Recalculate from base gross
-  const newGross    = +(e._baseGross + val).toFixed(2);
-  const semiTaxable = newGross - e.sss - e.philHealth - e.pagIBIG;
-  const newWHT      = +(calcWHT(semiTaxable*2)/2).toFixed(2);
-  const newDeduct   = +(e.sss + e.philHealth + e.pagIBIG + newWHT).toFixed(2);
-  const newNet      = +(newGross - newDeduct).toFixed(2);
+  // Invalidate cache so next getPayData picks up new extra
+  _payCache = null;
 
-  e.grossPay    = newGross;
-  e.wht         = newWHT;
-  e.totalDeduct = newDeduct;
-  e.netPay      = newNet;
-
-  // Style the input
-  inputEl.style.border = val !== 0
-    ? '1px solid var(--purple)' : '1px solid var(--border)';
-  inputEl.style.background = val !== 0 ? 'var(--purple-bg)' : 'var(--surface)';
-
-  // Update affected cells in DOM without full re-render
+  // Re-render just this one row by rebuilding the full pay row HTML
   const row = inputEl.closest('tr');
   if(!row) return;
+
+  // Recompute this employee's pay fresh
+  const empObj = employees.find(function(e){ return e.uid === uid; });
+  if(!empObj) return;
+  const attProcessed = getAttProcessed(curPayYr, curPayMo, curPayHalf);
+  const att = attProcessed.find(function(a){ return nameMatch(empObj.name, a.n); });
+  const effectiveRate = getEffectiveRate(empObj, curPayYr, curPayMo, curPayHalf);
+  const pay = computePayroll({...empObj, rate: effectiveRate, _extra: val}, att || {nonHolDays:0,rhH:0,snwhH:0,swhH:0,otH:0,sunRegH:0,sunOtH:0,ndH:0});
+  const e = {...empObj, ...pay, extra: val, _effectiveRate: effectiveRate, _att: att};
+
+  // Update all affected cells (keep the input cell as-is)
   const allTd = row.querySelectorAll('td.r');
-  // columns: basicPay(0) otPay(1) sunPay(2) rhPay(3) ndPay(4) allowance(5) extra-input(6) gross(7) sss(8) ph(9) pagi(10) wht(11) deduct(12) net(13)
-  if(allTd.length >= 14){
-    allTd[7].textContent  = peso(newGross);
-    allTd[11].textContent = peso(newWHT);
-    allTd[12].textContent = peso(newDeduct);
-    allTd[13].textContent = peso(newNet);
+  // order of td.r: 0=rate 1=basicPay 2=otPay 3=sunPay 4=rhPay 5=ndPay 6=allowance 7=extra-input 8=gross 9=sss 10=ph 11=pagi 12=wht 13=deduct 14=net
+  if(allTd.length >= 15){
+    allTd[8].textContent  = peso(e.grossPay);
+    allTd[12].textContent = peso(e.wht);
+    allTd[13].textContent = peso(e.totalDeduct);
+    allTd[14].textContent = peso(e.netPay);
   }
+
+  // Style the input
+  inputEl.style.border = val !== 0 ? '1px solid var(--purple)' : '1px solid var(--border)';
+  inputEl.style.background = val !== 0 ? 'var(--purple-bg)' : 'var(--surface)';
 }
 
 function computePayroll(emp, att){
