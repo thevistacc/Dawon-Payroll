@@ -1845,37 +1845,44 @@ function setExtra(uid, val){
 
 function onExtraInput(uid, inputEl){
   const val = parseFloat(inputEl.value) || 0;
-  setExtra(uid, val);
-  inputEl.style.borderColor = val !== 0 ? 'var(--purple)' : '';
-  // recalculate this row without full re-render
+
+  // Keep the base gross (without any extra) on first call
   if(!_payCache) return;
   const e = _payCache.find(function(x){ return x.uid === uid; });
   if(!e) return;
-  const extra = val;
-  const newGross = +(e.grossPay - (e.extra||0) + extra).toFixed(2);
+
+  // Store the base gross (before any extra) the first time
+  if(e._baseGross === undefined) e._baseGross = +(e.grossPay - (e.extra||0)).toFixed(2);
+
+  setExtra(uid, val);
+  e.extra = val;
+
+  // Recalculate from base gross
+  const newGross    = +(e._baseGross + val).toFixed(2);
   const semiTaxable = newGross - e.sss - e.philHealth - e.pagIBIG;
-  const newWHT = +(calcWHT(semiTaxable*2)/2).toFixed(2);
-  const newDeduct = +(e.sss + e.philHealth + e.pagIBIG + newWHT).toFixed(2);
-  const newNet = +(newGross - newDeduct).toFixed(2);
-  e.extra = extra;
-  e.grossPay = newGross;
-  e.wht = newWHT;
+  const newWHT      = +(calcWHT(semiTaxable*2)/2).toFixed(2);
+  const newDeduct   = +(e.sss + e.philHealth + e.pagIBIG + newWHT).toFixed(2);
+  const newNet      = +(newGross - newDeduct).toFixed(2);
+
+  e.grossPay    = newGross;
+  e.wht         = newWHT;
   e.totalDeduct = newDeduct;
-  e.netPay = newNet;
-  // update cells in DOM
+  e.netPay      = newNet;
+
+  // Style the input
+  inputEl.style.border = val !== 0
+    ? '1px solid var(--purple)' : '1px solid var(--border)';
+  inputEl.style.background = val !== 0 ? 'var(--purple-bg)' : 'var(--surface)';
+
+  // Update affected cells in DOM without full re-render
   const row = inputEl.closest('tr');
   if(!row) return;
-  const cells = row.querySelectorAll('td');
-  // gross=col10, wht=col13, deduct=col14, net=col15 (0-indexed)
-  // find by data approach: update last few tds
   const allTd = row.querySelectorAll('td.r');
-  // rebuild affected cells by finding via text pattern is fragile; use stored indices
-  // gross is 7th .r cell (0-indexed: basicPay,otPay,sunPay,rhPay,ndPay,allowance,extra,gross,sss,ph,pagi,wht,deduct,net)
+  // columns: basicPay(0) otPay(1) sunPay(2) rhPay(3) ndPay(4) allowance(5) extra-input(6) gross(7) sss(8) ph(9) pagi(10) wht(11) deduct(12) net(13)
   if(allTd.length >= 14){
-    allTd[7].textContent = peso(newGross);
+    allTd[7].textContent  = peso(newGross);
     allTd[11].textContent = peso(newWHT);
     allTd[12].textContent = peso(newDeduct);
-    allTd[13].style.color = 'var(--green)';
     allTd[13].textContent = peso(newNet);
   }
 }
