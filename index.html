@@ -2731,8 +2731,17 @@ function renderPay(){
 function showPayDetail(name){
   if(!_payCache) _payCache=getPayData();
   const e=_payCache.find(x=>x.name===name); if(!e) return;
+
+  // Always read the latest extra value from the live store
+  const extra = getExtra(e.uid);
+  // Recalculate gross/wht/deduct/net with current extra
+  const grossPay = +(e.grossPay - (e.extra||0) + extra).toFixed(2);
+  const semiTaxable = grossPay - e.sss - e.philHealth - e.pagIBIG;
+  const wht = +(calcWHT(semiTaxable*2)/2).toFixed(2);
+  const totalDeduct = +(e.sss + e.philHealth + e.pagIBIG + wht).toFixed(2);
+  const netPay = +(grossPay - totalDeduct).toFixed(2);
+
   document.getElementById('payModalTitle').textContent=e.name+' — Pay Slip';
-  const {s:ps,e:pe}=getHalfDays(curPayYr,curPayMo,curPayHalf);
   document.getElementById('payModalBody').innerHTML=`
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
       ${e.dept} · ${e.type==='regular'?'Regular':'Contractual'} · Daily Rate ₱${(e._effectiveRate||e.rate).toLocaleString()}${e._effectiveRate&&e._effectiveRate!==e.rate?' <span style="color:var(--amber)">(Rate changed (was ₱'+e.rate.toLocaleString()+')</span>':''} · ${curPayYr} ${curPayMo} ${curPayHalf===1?'1st Half':'2nd Half'}
@@ -2747,20 +2756,20 @@ function showPayDetail(name){
       ${(e.otPay>0)?`<tr><td>Overtime Pay (${e._att?e._att.otH.toFixed(1):'0'}h × 125%)</td><td class="r" style="color:var(--amber)">${peso(e.otPay)}</td></tr>`:''}
       ${(e.ndPay>0)?`<tr><td>Night Differential NSD (${e._att?e._att.ndH.toFixed(1):'0'}h × 10%)</td><td class="r" style="color:var(--blue)">${peso(e.ndPay)}</td></tr>`:''}
       <tr><td>Allowance</td><td class="r">${peso(e.allowance)}</td></tr>
-      ${(e.extra>0)?`<tr><td style="color:var(--purple-text)">Extra Pay</td><td class="r" style="color:var(--purple-text)">${peso(e.extra)}</td></tr>`:''}
-      <tr class="total"><td>Total Gross</td><td class="r">${peso(e.grossPay)}</td></tr>
+      ${(extra>0)?`<tr><td style="color:var(--purple-text)">Extra Pay</td><td class="r" style="color:var(--purple-text)">${peso(extra)}</td></tr>`:''}
+      <tr class="total"><td>Total Gross</td><td class="r">${peso(grossPay)}</td></tr>
     </table>
     <div class="section-divider">Deductions</div>
     <table class="bk-table">
       <tr class="deduct"><td>SSS (Social Security)</td><td class="r">${peso(e.sss)}</td></tr>
       <tr class="deduct"><td>PhilHealth (Health Insurance)</td><td class="r">${peso(e.philHealth)}</td></tr>
       <tr class="deduct"><td>Pag-IBIG (Housing Fund)</td><td class="r">${peso(e.pagIBIG)}</td></tr>
-      <tr class="deduct"><td>Withholding Tax (WHT)</td><td class="r">${peso(e.wht)}</td></tr>
-      <tr class="total"><td style="color:var(--red)">Total Deductions</td><td class="r" style="color:var(--red)">${peso(e.totalDeduct)}</td></tr>
+      <tr class="deduct"><td>Withholding Tax (WHT)</td><td class="r">${peso(wht)}</td></tr>
+      <tr class="total"><td style="color:var(--red)">Total Deductions</td><td class="r" style="color:var(--red)">${peso(totalDeduct)}</td></tr>
     </table>
     <div style="background:var(--green-bg);border-radius:var(--radius-lg);padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin-top:8px">
       <div style="font-size:13px;color:var(--green-text);font-weight:500">Net Pay</div>
-      <div style="font-size:22px;font-weight:700;color:var(--green)">${peso(e.netPay)}</div>
+      <div style="font-size:22px;font-weight:700;color:var(--green)">${peso(netPay)}</div>
     </div>`;
   document.getElementById('payModal').style.display='flex';
 }
