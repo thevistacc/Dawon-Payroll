@@ -534,6 +534,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
         <th class="r">Rest DayAllowance</th>
         <th class="r">Night Pay</th>
         <th class="r">Allowance</th>
+        <th class="r" style="color:var(--purple-text)">Extra</th>
         <th class="r">Gross Pay</th>
         <th class="r">SSS</th>
         <th class="r">PhilHealth</th>
@@ -727,7 +728,10 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
 <div class="modal" style="max-width:600px">
   <div class="modal-header"><h3 id="payModalTitle">Pay Slip</h3><button class="modal-close" onclick="document.getElementById('payModal').style.display='none'">✕</button></div>
   <div class="modal-body" id="payModalBody"></div>
-  <div class="modal-footer"><button class="btn" onclick="document.getElementById('payModal').style.display='none'">Close</button></div>
+  <div class="modal-footer">
+    <button class="btn" onclick="document.getElementById('payModal').style.display='none'">Close</button>
+    <button class="btn primary" onclick="printPayslip()">🖨 Print</button>
+  </div>
 </div>
 </div>
 
@@ -1822,6 +1826,60 @@ function calcWHT(monthlyTaxable){
   return 183541.80+(monthlyTaxable-666667)*0.35;
 }
 
+
+// ── EXTRA PAY (per-period manual entries) ──
+let _extraPay = {}; // { 'empUid': amount }  keyed per period in memory
+
+function extraPayKey(yr, mo, half){ return 'extra_'+yr+'_'+mo+'_'+half; }
+
+function getExtra(uid){
+  const k = extraPayKey(curPayYr, curPayMo, curPayHalf);
+  return (_extraPay[k] && _extraPay[k][uid]) || 0;
+}
+
+function setExtra(uid, val){
+  const k = extraPayKey(curPayYr, curPayMo, curPayHalf);
+  if(!_extraPay[k]) _extraPay[k] = {};
+  _extraPay[k][uid] = val;
+}
+
+function onExtraInput(uid, inputEl){
+  const val = parseFloat(inputEl.value) || 0;
+  setExtra(uid, val);
+  inputEl.style.borderColor = val !== 0 ? 'var(--purple)' : '';
+  // recalculate this row without full re-render
+  if(!_payCache) return;
+  const e = _payCache.find(function(x){ return x.uid === uid; });
+  if(!e) return;
+  const extra = val;
+  const newGross = +(e.grossPay - (e.extra||0) + extra).toFixed(2);
+  const semiTaxable = newGross - e.sss - e.philHealth - e.pagIBIG;
+  const newWHT = +(calcWHT(semiTaxable*2)/2).toFixed(2);
+  const newDeduct = +(e.sss + e.philHealth + e.pagIBIG + newWHT).toFixed(2);
+  const newNet = +(newGross - newDeduct).toFixed(2);
+  e.extra = extra;
+  e.grossPay = newGross;
+  e.wht = newWHT;
+  e.totalDeduct = newDeduct;
+  e.netPay = newNet;
+  // update cells in DOM
+  const row = inputEl.closest('tr');
+  if(!row) return;
+  const cells = row.querySelectorAll('td');
+  // gross=col10, wht=col13, deduct=col14, net=col15 (0-indexed)
+  // find by data approach: update last few tds
+  const allTd = row.querySelectorAll('td.r');
+  // rebuild affected cells by finding via text pattern is fragile; use stored indices
+  // gross is 7th .r cell (0-indexed: basicPay,otPay,sunPay,rhPay,ndPay,allowance,extra,gross,sss,ph,pagi,wht,deduct,net)
+  if(allTd.length >= 14){
+    allTd[7].textContent = peso(newGross);
+    allTd[11].textContent = peso(newWHT);
+    allTd[12].textContent = peso(newDeduct);
+    allTd[13].style.color = 'var(--green)';
+    allTd[13].textContent = peso(newNet);
+  }
+}
+
 function computePayroll(emp, att){
   const hourlyRate = emp.rate/8;
   // Basic pay: non-holiday worked days × daily rate
@@ -1839,8 +1897,8 @@ function computePayroll(emp, att){
   // NSD +10%
   const ndPay = att.ndH * hourlyRate * 0.10;
   const allowance = emp.allowance||0;
-
-  const grossPay = basicPay + rhPay + snwhPay + swhPay + otPay + sunRegPay + sunOtPay + ndPay + allowance;
+  const extra = emp._extra||0;
+  const grossPay = basicPay + rhPay + snwhPay + swhPay + otPay + sunRegPay + sunOtPay + ndPay + allowance + extra;
 
   // Deductions (semi-monthly basis = monthly/2)
   const monthlyBasic = emp.rate * 26 / 2; // approx monthly (26 working days / 2 periods)
@@ -1861,7 +1919,7 @@ function computePayroll(emp, att){
     snwhPay:+snwhPay.toFixed(2), swhPay:+swhPay.toFixed(2),
     otPay:+otPay.toFixed(2), sunRegPay:+sunRegPay.toFixed(2), sunOtPay:+sunOtPay.toFixed(2),
     ndPay:+ndPay.toFixed(2),
-    allowance:+allowance.toFixed(2), grossPay:+grossPay.toFixed(2),
+    allowance:+allowance.toFixed(2), extra:+extra.toFixed(2), grossPay:+grossPay.toFixed(2),
     sss:+sss.toFixed(2), philHealth:+philHealth.toFixed(2),
     pagIBIG:+pagIBIG.toFixed(2), wht:+wht.toFixed(2),
     totalDeduct:+totalDeduct.toFixed(2), netPay:+netPay.toFixed(2)
@@ -2561,8 +2619,9 @@ function getPayData(){
     const att=attProcessed.find(a=>nameMatch(emp.name, a.n));
     if(!att) return {...emp, _noAtt:true, grossPay:0, netPay:0, sss:0, philHealth:0, pagIBIG:0, wht:0, totalDeduct:0, basicPay:0, otPay:0, rhPay:0, snwhPay:0, ndPay:0, sunRegPay:0, sunOtPay:0, allowance:emp.allowance};
     const effectiveRate=getEffectiveRate(emp, yr, mo, half);
-    const pay=computePayroll({...emp, rate:effectiveRate}, att);
-    return{...emp,...pay, _att:att, _effectiveRate:effectiveRate};
+    const _ex=getExtra(emp.uid);
+    const pay=computePayroll({...emp, rate:effectiveRate, _extra:_ex}, att);
+    return{...emp,...pay, extra:_ex, _att:att, _effectiveRate:effectiveRate};
   });
 }
 
@@ -2650,6 +2709,12 @@ function renderPay(){
       <td class="r" style="${(e.rhPay+e.snwhPay)>0?'color:var(--red)':''}">${peso(e.rhPay+e.snwhPay)}</td>
       <td class="r" style="${e.ndPay>0?'color:var(--blue)':''}">${peso(e.ndPay)}</td>
       <td class="r">${peso(e.allowance)}</td>
+      <td class="r" style="padding:4px 8px">
+        <input type="number" min="0" step="0.01" placeholder="0"
+          value="${e.extra||''}"
+          oninput="onExtraInput('${e.uid}',this)"
+          style="width:80px;height:26px;padding:0 6px;font-size:12px;text-align:right;font-family:inherit;color:var(--text);border-radius:4px;${e.extra>0?'border:1px solid var(--purple);background:var(--purple-bg)':'border:1px solid var(--border);background:var(--surface)'}"/>
+      </td>
       <td class="r" style="font-weight:600">${peso(e.grossPay)}</td>
       <td class="r dim">${peso(e.sss)}</td>
       <td class="r dim">${peso(e.philHealth)}</td>
@@ -2681,8 +2746,9 @@ function showPayDetail(name){
       ${((e.sunOtPay||0)>0)?`<tr><td>Sunday OT (${e._att?e._att.sunOtH.toFixed(1):'0'}h × 130%×130%)</td><td class="r" style="color:var(--blue)">${peso(e.sunOtPay)}</td></tr>`:''}
       ${(e.otPay>0)?`<tr><td>Overtime Pay (${e._att?e._att.otH.toFixed(1):'0'}h × 125%)</td><td class="r" style="color:var(--amber)">${peso(e.otPay)}</td></tr>`:''}
       ${(e.ndPay>0)?`<tr><td>Night Differential NSD (${e._att?e._att.ndH.toFixed(1):'0'}h × 10%)</td><td class="r" style="color:var(--blue)">${peso(e.ndPay)}</td></tr>`:''}
-      <tr><td>Allowance (Allowance)</td><td class="r">${peso(e.allowance)}</td></tr>
-      <tr class="total"><td>Total Gross (Gross Pay)</td><td class="r">${peso(e.grossPay)}</td></tr>
+      <tr><td>Allowance</td><td class="r">${peso(e.allowance)}</td></tr>
+      ${(e.extra>0)?`<tr><td style="color:var(--purple-text)">Extra Pay</td><td class="r" style="color:var(--purple-text)">${peso(e.extra)}</td></tr>`:''}
+      <tr class="total"><td>Total Gross</td><td class="r">${peso(e.grossPay)}</td></tr>
     </table>
     <div class="section-divider">Deductions</div>
     <table class="bk-table">
@@ -2701,6 +2767,56 @@ function showPayDetail(name){
 
 function printPayroll(){
   window.print();
+}
+
+function printPayslip(){
+  const title = document.getElementById('payModalTitle').textContent;
+  const body  = document.getElementById('payModalBody').innerHTML;
+  const win   = window.open('','_blank','width=680,height=820');
+  win.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8"/>
+<title>${title}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;
+       font-size:13px;color:#1a1916;padding:32px 36px;line-height:1.5}
+  h2{font-size:17px;font-weight:700;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}
+  td{padding:6px 0;border-bottom:1px solid #e0ddd8;font-size:13px}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  tr.total td{font-weight:700;border-top:2px solid #ccc9c2;border-bottom:none;padding-top:10px}
+  tr.deduct td{color:#922c21}
+  .section-divider{font-size:10px;font-weight:700;color:#6b6860;text-transform:uppercase;
+    letter-spacing:.5px;padding:10px 0 4px;border-bottom:1px solid #e0ddd8;margin-bottom:4px}
+  div[style*="green-bg"]{background:#eaf4ee!important;border-radius:8px;padding:14px 18px;
+    display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+  .logo{font-size:20px;font-weight:700}
+  .logo span{font-weight:400;color:#6b6860}
+  .header-row{display:flex;justify-content:space-between;align-items:flex-start;
+    margin-bottom:20px;padding-bottom:14px;border-bottom:2px solid #1a1916}
+  @media print{body{padding:20px 24px}}
+</style>
+</head><body>
+<div class="header-row">
+  <div>
+    <div class="logo">Dawon <span>Payroll</span></div>
+    <div style="font-size:11px;color:#9b9890;margin-top:2px">Pay Slip</div>
+  </div>
+  <div style="text-align:right;font-size:11px;color:#9b9890">
+    Printed: ${new Date().toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'})}
+  </div>
+</div>
+<h2>${title.replace(' \u2014 Pay Slip','')}</h2>
+<div style="margin-bottom:16px">${body}</div>
+<div style="margin-top:24px;padding-top:12px;border-top:1px solid #e0ddd8;
+     font-size:10px;color:#9b9890;text-align:center">
+  This pay slip is computer generated and does not require a signature.
+</div>
+</body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(function(){ win.print(); }, 400);
 }
 
 // ═══════════════════════════════════════
