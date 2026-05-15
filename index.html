@@ -1377,7 +1377,7 @@ async function loadAccessRequests(){
         +'<td style="font-size:12px;'+statusClr+'">'+r.status+'</td>'
         +'<td style="white-space:nowrap">'
         +(r.status==='pending'?
-          '<button class="btn sm primary" data-id="'+r.id+'" data-email="'+r.email+'" data-dept="'+(r.dept||'')+'" onclick="approveRequest(this.dataset.id,this.dataset.email,this.dataset.dept)">Approve</button>'
+          '<button class="btn sm primary" onclick="openApproveModal(\''+r.id+'\'  ,\''+r.email+'\'  ,\''+encodeURIComponent(r.dept||'')+'\')">Approve</button>'
           +'<button class="btn sm danger" style="margin-left:4px" data-id="'+r.id+'" onclick="denyRequest(this.dataset.id)">Deny</button>'
           :'<span style="font-size:11px;color:var(--text3)">—</span>')
         +'</td></tr>';
@@ -1387,20 +1387,55 @@ async function loadAccessRequests(){
   }
 }
 
-async function approveRequest(reqId, email, dept){
-  // Invite user via Supabase Auth (sends email with password setup link)
-  const role=prompt('Assign role for '+email+':\n1. viewer\n2. manager\n3. admin\n\nEnter role name:');
-  if(!role||!['admin','manager','viewer'].includes(role.toLowerCase())) return;
+// ★ Pending approve state
+let _pendingApproveReqId=null, _pendingApproveEmail='', _pendingApproveDept='';
+
+function openApproveModal(reqId, email, dept){
+  _pendingApproveReqId=reqId;
+  _pendingApproveEmail=email;
+  _pendingApproveDept=decodeURIComponent(dept||'');
+  document.getElementById('approveModalInfo').innerHTML=
+    '👤 <b>'+email+'</b>'+(_pendingApproveDept?' &nbsp;·&nbsp; Dept: '+_pendingApproveDept:'')
+    +'<br><span style="font-size:11px;color:var(--blue-text)">사용자가 초대 이메일 링크를 클릭한 후 Supabase → Authentication → Users에서 UUID를 복사하세요.</span>';
+  document.getElementById('approve_uuid').value='';
+  document.getElementById('approve_role').value='viewer';
+  document.getElementById('approve_company').value='';
+  onApproveRoleChange();
+  document.getElementById('approveModal').style.display='flex';
+}
+
+function onApproveRoleChange(){
+  const role=document.getElementById('approve_role').value;
+  document.getElementById('approve_company_field').style.display=role==='admin'?'none':'';
+  document.getElementById('approve_admin_note').style.display=role==='admin'?'':'none';
+}
+
+async function submitApproveRequest(){
+  const userId=document.getElementById('approve_uuid').value.trim();
+  const role=document.getElementById('approve_role').value;
+  const company=role==='admin'?null:(document.getElementById('approve_company').value||null);
+
+  if(!userId){alert('Supabase → Authentication → Users에서 UUID를 복사해 붙여넣으세요.');return;}
+  const uuidRegex=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if(!uuidRegex.test(userId)){alert('UUID 형식이 올바르지 않습니다.\nxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');return;}
+  if(role!=='admin'&&!company){alert('Company를 선택해주세요 (DW 또는 DDC).');return;}
 
   try{
-    // Update request status
-    await getSupa().from('access_requests').update({status:'approved'}).eq('id',reqId);
-    showToast('✓ Request approved. Send the app URL to '+email+' and assign their role via + Assign Role.','success');
+    const {error:roleErr}=await getSupa().from('user_roles').upsert(
+      {user_id:userId,role:role,company:company,dept:_pendingApproveDept||null,updated_at:new Date().toISOString()},
+      {onConflict:'user_id'}
+    );
+    if(roleErr)throw roleErr;
+
+    await getSupa().from('access_requests').update({status:'approved'}).eq('id',_pendingApproveReqId);
+
+    writeLog('employee_add',_pendingApproveEmail,'Access approved | role: '+role+(company?' | company: '+company:''));
+
+    document.getElementById('approveModal').style.display='none';
+    showToast('✓ '+_pendingApproveEmail+' — '+role+(company?' ['+company+']':'')+' 승인 완료','success');
     loadAccessRequests();
     renderUsersPage();
-  }catch(e){
-    alert('Error: '+e.message);
-  }
+  }catch(e){alert('Error: '+e.message);}
 }
 
 async function denyRequest(reqId){
@@ -3796,6 +3831,53 @@ async function loadAttStoreLocal(){
 }
 
 </script>
+
+<!-- ★ Approve Request Modal -->
+<div id="approveModal" class="overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+<div class="modal" style="max-width:480px" onclick="event.stopPropagation()">
+  <div class="modal-header">
+    <h3>Approve Access Request</h3>
+    <button class="modal-close" onclick="document.getElementById('approveModal').style.display='none'">✕</button>
+  </div>
+  <div class="modal-body">
+    <div id="approveModalInfo" style="background:var(--blue-bg);color:var(--blue-text);border-radius:var(--radius);padding:10px 14px;font-size:13px;margin-bottom:14px;line-height:1.6"></div>
+    <div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:var(--radius);padding:10px 12px;font-size:12px;color:var(--amber-text);margin-bottom:14px">
+      ① 사용자가 Supabase 초대 이메일 링크를 클릭해야 합니다.<br>
+      ② 그 후 Supabase → Authentication → Users에서 해당 이메일의 UUID를 복사하세요.
+    </div>
+    <div class="form-grid">
+      <div class="field span2">
+        <label>User UUID</label>
+        <input id="approve_uuid" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:100%;font-family:monospace;font-size:12px"/>
+        <div class="hint">Supabase → Authentication → Users → 해당 이메일 클릭 → User UID 복사</div>
+      </div>
+      <div class="field">
+        <label>Role</label>
+        <select id="approve_role" style="width:100%" onchange="onApproveRoleChange()">
+          <option value="viewer">🔵 Viewer — Read-only</option>
+          <option value="manager">🟡 Manager — Edit + Upload</option>
+          <option value="admin">🔴 Admin — Full Access</option>
+        </select>
+      </div>
+      <div class="field" id="approve_company_field">
+        <label>Company</label>
+        <select id="approve_company" style="width:100%">
+          <option value="">— Select —</option>
+          <option value="DW">DW</option>
+          <option value="DDC">DDC</option>
+        </select>
+      </div>
+    </div>
+    <div id="approve_admin_note" style="display:none;margin-top:10px;background:var(--red-bg);color:var(--red-text);border-radius:var(--radius);padding:8px 12px;font-size:12px">
+      ⚠ Admin은 모든 회사·부서에 접근할 수 있습니다.
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn" onclick="document.getElementById('approveModal').style.display='none'">Cancel</button>
+    <button class="btn primary" onclick="submitApproveRequest()">✔ Approve &amp; Save Role</button>
+  </div>
+</div>
+</div>
 
 <!-- XLS Upload Preview Modal -->
 <div id="xlsPreviewModal" class="overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
