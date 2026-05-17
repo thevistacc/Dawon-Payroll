@@ -1753,16 +1753,20 @@ function peso(v){return '₱'+v.toLocaleString('en-PH',{minimumFractionDigits:2,
 // ATTENDANCE CALCULATION
 // ═══════════════════════════════════════
 const STD_H=8, MEAL_BREAK=1; // 1h unpaid meal break per day
+const WORK_START_M=8*60; // 08:00 — early clock-in before this is not counted
 
 // Round to nearest 0.5h
 function roundHalf(h){ return Math.ceil(h*2)/2; } // Round UP to nearest 0.5h
 
 // Dynamic version used by processAtt
 function calcDayHoursForDate(year, month, day, ti, to){
-  const inM=toMins(ti), outM=toMins(to);
-  if(!inM) return null;
+  const rawInM=toMins(ti), outM=toMins(to);
+  if(!rawInM) return null;
+  // Clock-in between 07:00~07:59 → treat as 08:00 (grace period not counted)
+  // Clock-in before 07:00 → kept as-is (early shift)
+  const inM = (rawInM >= 7*60 && rawInM < WORK_START_M) ? WORK_START_M : rawInM;
   const type=getDayTypeForDate(year,month,day);
-  if(!outM) return {inM,outM:null,worked:STD_H,reg:STD_H,ot:0,nd:0,type,noOut:true}; // No clock-out → default 8h
+  if(!outM) return {inM:rawInM,outM:null,worked:STD_H,reg:STD_H,ot:0,nd:0,type,noOut:true}; // No clock-out → default 8h
   const rawH=(outM-inM)/60;
   if(rawH<=0) return {inM,outM,worked:0,reg:0,ot:0,nd:0,type};
   const mealDeduct = rawH>=4 ? MEAL_BREAK : 0; // Deduct 1h meal break if worked >= 4h
@@ -1775,7 +1779,7 @@ function calcDayHoursForDate(year, month, day, ti, to){
   if(outM>22*60){nd+=(Math.min(outM,30*60)-Math.max(inM,22*60))/60}
   if(inM<6*60){nd+=(Math.min(outM,6*60)-inM)/60}
   nd=Math.max(0,roundHalf(nd));
-  return{inM,outM,rawH:+rawH.toFixed(2),mealDeduct,worked,reg:+reg.toFixed(2),ot:+ot.toFixed(2),nd,type,noOut:false};
+  return{inM:rawInM,outM,rawH:+rawH.toFixed(2),mealDeduct,worked,reg:+reg.toFixed(2),ot:+ot.toFixed(2),nd,type,noOut:false};
 }
 
 
