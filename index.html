@@ -1521,21 +1521,26 @@ async function renderUsersPage(){
   tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Loading…</td></tr>';
 
   try{
-    // Fetch roles including email
-    // email 컬럼이 DB에 없을 수 있으므로 오류시 email 없이 재시도
-    let _emailColExists=true;
-    let rolesRes=await getSupa().from('user_roles').select('user_id,email,role,company,dept,updated_at');
-    if(rolesRes.error&&(rolesRes.error.code==='42703'||rolesRes.error.message&&rolesRes.error.message.includes('email'))){
-      _emailColExists=false;
-      rolesRes=await getSupa().from('user_roles').select('user_id,role,company,dept,updated_at');
-    }
-    const sqlNotice=document.getElementById('users-sql-notice');
-    if(sqlNotice) sqlNotice.style.display=_emailColExists?'none':'';
-    const {data:roles,error:rErr}=rolesRes;
+    // Fetch roles (without email col — not reliable across all DBs)
+    const {data:roles,error:rErr}=await getSupa().from('user_roles').select('user_id,role,company,dept,updated_at');
     if(rErr) throw rErr;
 
-    const roleMap={};
-    (roles||[]).forEach(function(r){ roleMap[r.user_id]=r; });
+    // Build email map from access_requests (approved ones have email+user linkable by email)
+    // and from current user (we know our own email)
+    const emailMap={};
+    if(_currentUser) emailMap[_currentUser.id]=_currentUser.email;
+    try{
+      const {data:reqs}=await getSupa().from('access_requests').select('email,name').eq('status','approved');
+      // We can't directly join user_id ↔ email without a profiles table,
+      // but user_roles rows saved via invite flow store pending:email — skip those.
+      // For now just use what we have from current user + any email col if it exists.
+      // Try to get email col too:
+      const {data:withEmail}=await getSupa().from('user_roles').select('user_id,email');
+      if(withEmail) withEmail.forEach(function(r){ if(r.email) emailMap[r.user_id]=r.email; });
+    }catch(e){}
+
+    const sqlNotice=document.getElementById('users-sql-notice');
+    if(sqlNotice) sqlNotice.style.display='none';
 
     _allUsers=roles||[];
 
@@ -1559,14 +1564,15 @@ async function renderUsersPage(){
     tbody.innerHTML=roles.map(function(r){
       const updated=r.updated_at?new Date(r.updated_at).toLocaleDateString('en-PH'):'—';
       const isSelf=_currentUser&&r.user_id===_currentUser.id;
-      const displayEmail=r.email||'';
+      const email=emailMap[r.user_id]||'';
+      const displayEmail=email||r.user_id.slice(0,16)+'…';
       return '<tr>'
-        +'<td style="font-size:12px">'+(r.email||r.user_id.slice(0,16)+'…')+(isSelf?' <span style="font-size:10px;background:var(--green-bg);color:var(--green-text);border-radius:3px;padding:1px 5px">you</span>':'')+'</td>'
+        +'<td style="font-size:12px">'+displayEmail+(isSelf?' <span style="font-size:10px;background:var(--green-bg);color:var(--green-text);border-radius:3px;padding:1px 5px">you</span>':'')+'</td>'
         +'<td style="font-weight:500;'+roleColors[r.role]+'">'+roleLabels[r.role]+'</td>'
         +'<td class="dim">'+(r.company||'<span style="color:var(--text3)">All</span>')+'</td>'
         +'<td class="dim">'+(r.dept||'<span style="color:var(--text3)">All Depts</span>')+'</td>'
         +'<td class="dim">'+updated+'</td>'
-        +'<td><button class="btn sm" data-uid="'+r.user_id+'" data-email="'+displayEmail+'" data-role="'+r.role+'" data-company="'+(r.company||'')+'" data-dept="'+(r.dept||'')+'" onclick="openEditUserRole(this.dataset.uid,this.dataset.email,this.dataset.role,this.dataset.company,this.dataset.dept)">'+(isSelf?'Edit (you)':'Edit')+'</button></td>'
+        +'<td><button class="btn sm" data-uid="'+r.user_id+'" data-email="'+email+'" data-role="'+r.role+'" data-company="'+(r.company||'')+'" data-dept="'+(r.dept||'')+'" onclick="openEditUserRole(this.dataset.uid,this.dataset.email,this.dataset.role,this.dataset.company,this.dataset.dept)">'+(isSelf?'Edit (you)':'Edit')+'</button></td>'
         +'</tr>';
     }).join('');
   }catch(err){
