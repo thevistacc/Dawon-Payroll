@@ -563,6 +563,10 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     <button class="btn primary" onclick="openAddUserRole()">+ Assign Role</button>
   </div>
   <div class="metrics" id="users-metrics"></div>
+  <div id="users-sql-notice" style="display:none;background:var(--amber-bg);border:1px solid var(--amber);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--amber-text);margin-bottom:12px">
+    ⚠ <b>Setup needed:</b> Run this SQL in <b>Supabase → SQL Editor</b> to show emails:<br>
+    <code style="display:inline-block;margin-top:4px;background:var(--surface);padding:2px 8px;border-radius:4px;color:var(--text);font-size:11px">ALTER TABLE public.user_roles ADD COLUMN IF NOT EXISTS email text;</code>
+  </div>
   <div class="tbl-wrap">
     <div class="tbl-scroll">
     <table>
@@ -1381,31 +1385,30 @@ async function loadAccessRequests(){
     const {data,error}=await getSupa().from('access_requests')
       .select('*').order('requested_at',{ascending:false});
     if(error) throw error;
-    if(!data||!data.length){
-      tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text3)">No requests yet</td></tr>';
-      if(badge) badge.style.display='none';
+
+    // 이메일별 최신 요청 하나만, pending인 것만 표시
+    const latestByEmail={};
+    (data||[]).forEach(function(r){
+      if(!latestByEmail[r.email]) latestByEmail[r.email]=r; // desc order so first = latest
+    });
+    const display=Object.values(latestByEmail).filter(function(r){return r.status==='pending';});
+
+    if(badge){ badge.textContent=display.length; badge.style.display=display.length?'':'none'; }
+    if(!display.length){
+      tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text3)">No pending requests</td></tr>';
       return;
     }
-    const pending=data.filter(function(r){return r.status==='pending';}).length;
-    if(badge){
-      badge.textContent=pending;
-      badge.style.display=pending?'':'none';
-    }
-    tbody.innerHTML=data.map(function(r){
+    tbody.innerHTML=display.map(function(r){
       const date=new Date(r.requested_at).toLocaleDateString('en-PH');
-      const statusClr=r.status==='pending'?'color:var(--amber-text)':
-                      r.status==='approved'?'color:var(--green-text)':'color:var(--text3)';
       return '<tr>'
         +'<td style="font-weight:500">'+r.name+'</td>'
         +'<td class="dim">'+r.email+'</td>'
         +'<td class="dim">'+(r.dept||'—')+'</td>'
         +'<td class="dim">'+date+'</td>'
-        +'<td style="font-size:12px;'+statusClr+'">'+r.status+'</td>'
+        +'<td style="font-size:12px;color:var(--amber-text)">pending</td>'
         +'<td style="white-space:nowrap">'
-        +(r.status==='pending'?
-          '<button class="btn sm primary" onclick="openApproveModal(\''+r.id+'\'  ,\''+r.email+'\'  ,\''+encodeURIComponent(r.dept||'')+'\')">Approve</button>'
-          +'<button class="btn sm danger" style="margin-left:4px" data-id="'+r.id+'" onclick="denyRequest(this.dataset.id)">Deny</button>'
-          :'<span style="font-size:11px;color:var(--text3)">—</span>')
+        +'<button class="btn sm primary" onclick="openApproveModal(\''+r.id+'\'  ,\''+r.email+'\'  ,\''+encodeURIComponent(r.dept||'')+'\')">Approve</button>'
+        +'<button class="btn sm danger" style="margin-left:4px" data-id="'+r.id+'" onclick="denyRequest(this.dataset.id)">Deny</button>'
         +'</td></tr>';
     }).join('');
   }catch(e){
@@ -1453,7 +1456,8 @@ async function submitApproveRequest(){
     );
     if(roleErr)throw roleErr;
 
-    await getSupa().from('access_requests').update({status:'approved'}).eq('id',_pendingApproveReqId);
+    // 같은 이메일의 모든 pending 요청을 approved 처리
+    await getSupa().from('access_requests').update({status:'approved'}).eq('email',_pendingApproveEmail);
 
     writeLog('employee_add',_pendingApproveEmail,'Access approved | role: '+role+(company?' | company: '+company:''));
 
@@ -1518,7 +1522,16 @@ async function renderUsersPage(){
 
   try{
     // Fetch roles including email
-    const {data:roles,error:rErr}=await getSupa().from('user_roles').select('user_id,email,role,company,dept,updated_at');
+    // email 컬럼이 DB에 없을 수 있으므로 오류시 email 없이 재시도
+    let _emailColExists=true;
+    let rolesRes=await getSupa().from('user_roles').select('user_id,email,role,company,dept,updated_at');
+    if(rolesRes.error&&(rolesRes.error.code==='42703'||rolesRes.error.message&&rolesRes.error.message.includes('email'))){
+      _emailColExists=false;
+      rolesRes=await getSupa().from('user_roles').select('user_id,role,company,dept,updated_at');
+    }
+    const sqlNotice=document.getElementById('users-sql-notice');
+    if(sqlNotice) sqlNotice.style.display=_emailColExists?'none':'';
+    const {data:roles,error:rErr}=rolesRes;
     if(rErr) throw rErr;
 
     const roleMap={};
