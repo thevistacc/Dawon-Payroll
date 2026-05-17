@@ -1164,6 +1164,7 @@ async function onSignedIn(user){
 
   await loadEmployees();
   await loadAttStore();
+  applyLatestPeriod();
   refreshEmp();
   onPayPeriodChange();
   applyRoleUI();
@@ -1705,6 +1706,32 @@ async function loadAttStore(){
     }catch(e2){ attStore={}; }
   }
   // No seed data — upload XLS to populate attendance
+}
+
+// Find the most recent period that has data and apply it to both att & pay selects
+function applyLatestPeriod(){
+  const keys=Object.keys(attStore);
+  if(!keys.length) return; // no data — leave selects as today
+  // keys are "YYYY-M-H" — parse and sort descending
+  const parsed=keys.map(function(k){
+    const p=k.split('-');
+    return {yr:+p[0], mo:+p[1], half:+p[2]};
+  }).sort(function(a,b){
+    if(a.yr!==b.yr) return b.yr-a.yr;
+    if(a.mo!==b.mo) return b.mo-a.mo;
+    return b.half-a.half;
+  });
+  const latest=parsed[0];
+  // Apply to att selects
+  curAttYr=latest.yr; curAttMo=latest.mo; curAttHalf=latest.half;
+  document.getElementById('attYear').value=latest.yr;
+  document.getElementById('attMonth').value=latest.mo;
+  document.getElementById('attHalf').value=latest.half;
+  // Apply to pay selects
+  curPayYr=latest.yr; curPayMo=latest.mo; curPayHalf=latest.half;
+  document.getElementById('payYear').value=latest.yr;
+  document.getElementById('payMonth').value=latest.mo;
+  document.getElementById('payHalf').value=latest.half;
 }
 
 // Load a specific period from DB (called on-demand)
@@ -3809,7 +3836,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
       localBtn.onclick=async function(){
         document.getElementById('loginScreen').style.display='none';
         await loadEmployeesLocal(); await loadAttStoreLocal();
-        refreshEmp(); onPayPeriodChange();
+        applyLatestPeriod(); refreshEmp(); onPayPeriodChange();
       };
       box.appendChild(localBtn);
     }
