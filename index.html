@@ -1683,8 +1683,8 @@ async function saveEmployees(){
 async function loadAttStore(){
   // On startup: load only current period (lazy) + period index for navigation
   try{
-    // Load just the period keys first (no data) to know what's available
-    const {data:index,error:idxErr}=await getSupa().from('attendance').select('period');
+    // Load period index with data to know which periods have actual records
+    const {data:index,error:idxErr}=await getSupa().from('attendance').select('period,data');
     if(!idxErr&&index){
       if(index.length===0){
         // DB is empty — clear localStorage cache too
@@ -1692,7 +1692,15 @@ async function loadAttStore(){
         attStore={};
       } else {
         index.forEach(function(row){
-          if(!attStore[row.period]) attStore[row.period]=null;
+          if(attStore[row.period]===undefined){
+            // Parse data to check if non-empty; store parsed if small, else keep null for lazy load
+            try{
+              const parsed=JSON.parse(row.data||'[]');
+              // Mark as non-empty sentinel so applyLatestPeriod can detect it,
+              // but don't overwrite already-loaded data
+              attStore[row.period] = parsed.length>0 ? parsed : [];
+            }catch(e){ attStore[row.period]=null; }
+          }
         });
       }
     }
@@ -1710,7 +1718,11 @@ async function loadAttStore(){
 
 // Find the most recent period that has data and apply it to both att & pay selects
 function applyLatestPeriod(){
-  const keys=Object.keys(attStore);
+  // Only consider periods that actually have employee records (not null/empty)
+  const keys=Object.keys(attStore).filter(function(k){
+    const v=attStore[k];
+    return Array.isArray(v) && v.length>0;
+  });
   if(!keys.length) return; // no data — leave selects as today
   // keys are "YYYY-M-H" — parse and sort descending
   const parsed=keys.map(function(k){
