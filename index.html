@@ -1490,6 +1490,9 @@ async function submitApproveRequest(){
       );
     }
 
+    // invited row가 있으면 함께 정리 (Invite User로 미리 예약한 경우)
+    await getSupa().from('pending_invitations').delete().eq('email',email);
+
     // access_requests 전부 approved 처리
     await getSupa().from('access_requests').update({status:'approved'}).eq('email',email);
 
