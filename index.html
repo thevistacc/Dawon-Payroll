@@ -1048,16 +1048,32 @@ async function submitSignupRequest(){
     }
 
     const userId=authData.user&&authData.user.id;
+    if(!userId) throw new Error('계정 생성 후 UUID를 받지 못했습니다. Supabase Authentication → Settings에서 "Enable email confirmations"를 OFF로 설정하세요.');
 
-    // 2. access_requests에 UUID 포함해서 저장
-    await getSupa().from('access_requests').insert({
-      name, email,
-      user_id: userId||null,
-      company: company||null,
-      dept: dept||null,
-      status:'pending',
-      requested_at: new Date().toISOString()
+    // 2. access_requests에 UUID 포함해서 저장 (user_id 컬럼 없으면 없이 저장)
+    let insertErr=null;
+    const {error:e1}=await getSupa().from('access_requests').insert({
+      name, email, user_id:userId, company:company||null, dept:dept||null,
+      status:'pending', requested_at:new Date().toISOString()
     });
+    if(e1&&e1.message&&e1.message.includes('user_id')){
+      // user_id 컬럼 없음 → 컬럼 없이 재시도
+      const {error:e2}=await getSupa().from('access_requests').insert({
+        name, email, company:company||null, dept:dept||null,
+        status:'pending', requested_at:new Date().toISOString()
+      });
+      insertErr=e2;
+      // user_id 없이 저장된 경우 pending_invitations에 UUID 보관
+      if(!e2){
+        await getSupa().from('pending_invitations').upsert(
+          {email:email, role:'viewer', company:company||null, dept:dept||null, created_at:new Date().toISOString()},
+          {onConflict:'email'}
+        );
+        // UUID를 localStorage에 임시 보관 (같은 브라우저에서 admin이 approve할 경우 대비)
+        try{ localStorage.setItem('signup_uuid:'+email, userId); }catch(e){}
+      }
+    } else { insertErr=e1; }
+    if(insertErr) throw insertErr;
 
     okEl.innerHTML='✓ 가입 요청이 완료되었습니다!<br><span style="font-size:11px">Admin 승인 후 로그인 가능합니다.</span>';
     okEl.style.display='';
@@ -1512,10 +1528,23 @@ async function submitApproveRequest(){
       .select('user_id').eq('email',email).not('user_id','is',null)
       .order('requested_at',{ascending:false}).limit(1).maybeSingle();
 
-    const realUUID=reqRow&&reqRow.user_id;
+    let realUUID=reqRow&&reqRow.user_id;
+
+    // fallback: pending_invitations에서 RPC로 UUID 시도
+    if(!realUUID){
+      try{
+        const {data:rpcData}=await getSupa().rpc('get_user_id_by_email',{user_email:email});
+        if(rpcData) realUUID=rpcData;
+      }catch(e){}
+    }
+
+    // fallback: localStorage (같은 브라우저에서 가입한 경우)
+    if(!realUUID){
+      try{ realUUID=localStorage.getItem('signup_uuid:'+email)||null; }catch(e){}
+    }
 
     if(!realUUID){
-      throw new Error(email+' 계정의 UUID를 찾을 수 없습니다.\n\n해당 사용자가 앱의 "Request Access"로 가입했는지 확인하세요.\n(Supabase 대시보드에서 직접 생성한 계정은 UUID가 없습니다)');
+      throw new Error(email+' 계정의 UUID를 찾을 수 없습니다.\n\n해결 방법:\n1. Supabase SQL Editor에서 Users 페이지 상단의 SQL을 실행하세요.\n2. 사용자가 앱의 "Request Access"로 다시 가입하게 하세요.');
     }
 
     // user_roles에 저장
@@ -1527,6 +1556,7 @@ async function submitApproveRequest(){
 
     // pending_invitations 정리
     await getSupa().from('pending_invitations').delete().eq('email',email);
+    try{ localStorage.removeItem('signup_uuid:'+email); }catch(e){}
 
     // access_requests 전부 approved 처리
     await getSupa().from('access_requests').update({status:'approved'}).eq('email',email);
