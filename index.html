@@ -1035,46 +1035,46 @@ async function submitSignupRequest(){
 
   btn.disabled=true; btn.textContent='Processing…';
   try{
-    // 1. Supabase auth 계정 생성
+    // Step 1: signUp
+    errEl.textContent='[1/3] 계정 생성 중...'; errEl.style.display='';
     const {data:authData, error:authErr}=await getSupa().auth.signUp({email, password:pw});
-    if(authErr) throw authErr;
+    if(authErr) throw new Error('[signUp 실패] '+authErr.message);
 
-    // identities가 비어있으면 이미 가입된 이메일 (Supabase 이메일 확인 비활성화 시)
-    if(authData.user && authData.user.identities && authData.user.identities.length===0){
+    const userId=authData.user&&authData.user.id;
+    const identCount=authData.user&&authData.user.identities&&authData.user.identities.length;
+    if(!userId){
+      throw new Error('[UUID 없음] user='+JSON.stringify(authData.user).slice(0,200));
+    }
+    if(identCount===0){
       errEl.textContent='이미 가입된 이메일입니다. 로그인 화면으로 돌아가세요.';
       errEl.style.display='';
       btn.disabled=false; btn.textContent='Sign Up & Request Access';
       return;
     }
 
-    const userId=authData.user&&authData.user.id;
-    if(!userId) throw new Error('계정 생성 후 UUID를 받지 못했습니다. Supabase Authentication → Settings에서 "Enable email confirmations"를 OFF로 설정하세요.');
-
-    // 2. access_requests에 UUID 포함해서 저장 (user_id 컬럼 없으면 없이 저장)
-    let insertErr=null;
+    // Step 2: access_requests insert with user_id
+    errEl.textContent='[2/3] 요청 저장 중... (UUID: '+userId.slice(0,8)+'...)'; errEl.style.display='';
     const {error:e1}=await getSupa().from('access_requests').insert({
       name, email, user_id:userId, company:company||null, dept:dept||null,
       status:'pending', requested_at:new Date().toISOString()
     });
-    if(e1&&e1.message&&e1.message.includes('user_id')){
-      // user_id 컬럼 없음 → 컬럼 없이 재시도
-      const {error:e2}=await getSupa().from('access_requests').insert({
-        name, email, company:company||null, dept:dept||null,
-        status:'pending', requested_at:new Date().toISOString()
-      });
-      insertErr=e2;
-      // user_id 없이 저장된 경우 pending_invitations에 UUID 보관
-      if(!e2){
-        await getSupa().from('pending_invitations').upsert(
-          {email:email, role:'viewer', company:company||null, dept:dept||null, created_at:new Date().toISOString()},
-          {onConflict:'email'}
-        );
-        // UUID를 localStorage에 임시 보관 (같은 브라우저에서 admin이 approve할 경우 대비)
-        try{ localStorage.setItem('signup_uuid:'+email, userId); }catch(e){}
-      }
-    } else { insertErr=e1; }
-    if(insertErr) throw insertErr;
 
+    if(e1){
+      // user_id 컬럼 없으면 없이 재시도
+      if(e1.message&&(e1.message.includes('user_id')||e1.message.includes('column'))){
+        errEl.textContent='[2/3] user_id 컬럼 없음, 재시도 중...'; errEl.style.display='';
+        const {error:e2}=await getSupa().from('access_requests').insert({
+          name, email, company:company||null, dept:dept||null,
+          status:'pending', requested_at:new Date().toISOString()
+        });
+        if(e2) throw new Error('[access_requests insert 실패] '+e2.message);
+        try{ localStorage.setItem('signup_uuid:'+email, userId); }catch(e){}
+      } else {
+        throw new Error('[access_requests insert 실패] '+e1.message);
+      }
+    }
+
+    errEl.style.display='none';
     okEl.innerHTML='✓ 가입 요청이 완료되었습니다!<br><span style="font-size:11px">Admin 승인 후 로그인 가능합니다.</span>';
     okEl.style.display='';
     document.getElementById('signupName').value='';
