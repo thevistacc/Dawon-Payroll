@@ -1756,7 +1756,7 @@ const STD_H=8, MEAL_BREAK=1; // 1h unpaid meal break per day
 const WORK_START_M=8*60; // 08:00 — early clock-in before this is not counted
 
 // Round to nearest 0.5h
-function roundHalf(h){ return Math.ceil(h*2)/2; } // Round UP to nearest 0.5h
+function roundHalf(h){ return Math.round(h*2)/2; } // Round to nearest 0.5h
 
 // Dynamic version used by processAtt
 function calcDayHoursForDate(year, month, day, ti, to){
