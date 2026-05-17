@@ -1331,7 +1331,27 @@ async function loadUserRole(userId){
       const {data,error}=res;
       if(error){
         console.warn('loadUserRole error:', error.code, error.message, 'attempt:'+(attempt+1));
-        if(error.code==='PGRST116'){ _userRole='viewer';_userDept=null;_userCompany=null; break; }
+        if(error.code==='PGRST116'){
+          // Not found by UUID — check if there's a pending invite by email
+          try{
+            const userEmail=_currentUser&&_currentUser.email;
+            if(userEmail){
+              const {data:pending}=await getSupa().from('user_roles').select('*').eq('user_id','pending:'+userEmail).single();
+              if(pending){
+                // Upgrade pending entry to real UUID
+                await getSupa().from('user_roles').upsert(
+                  {user_id:userId,email:userEmail,role:pending.role,company:pending.company,dept:pending.dept,updated_at:new Date().toISOString()},
+                  {onConflict:'user_id'}
+                );
+                await getSupa().from('user_roles').delete().eq('user_id','pending:'+userEmail);
+                _userRole=pending.role; _userDept=pending.dept||null; _userCompany=pending.company||null;
+                console.log('✓ Pending invite upgraded to real UUID for', userEmail);
+                break;
+              }
+            }
+          }catch(pe){ console.warn('Pending check failed:', pe.message); }
+          _userRole='viewer';_userDept=null;_userCompany=null; break;
+        }
         if(attempt<1){ await new Promise(function(r){setTimeout(r,1000);}); continue; }
         _userRole='viewer';_userDept=null;_userCompany=null;
       } else if(data){
@@ -1428,7 +1448,7 @@ async function submitApproveRequest(){
 
   try{
     const {error:roleErr}=await getSupa().from('user_roles').upsert(
-      {user_id:userId,role:role,company:company,dept:_pendingApproveDept||null,updated_at:new Date().toISOString()},
+      {user_id:userId,email:_pendingApproveEmail||null,role:role,company:company,dept:_pendingApproveDept||null,updated_at:new Date().toISOString()},
       {onConflict:'user_id'}
     );
     if(roleErr)throw roleErr;
@@ -1457,7 +1477,7 @@ async function denyRequest(reqId){
 
 // ─── USER MANAGEMENT PAGE ───
 let _allUsers = [];   // [{id, email, role, dept, updated_at}]
-let _editingUserId = null;
+let _editingUserId = null, _editingUserEmail = '';
 
 async function autoAssignCompany(){
   if(!isAdmin()){ showToast('Admin access required.','warn'); return; }
@@ -1497,12 +1517,10 @@ async function renderUsersPage(){
   tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Loading…</td></tr>';
 
   try{
-    // Fetch roles
-    const {data:roles,error:rErr}=await getSupa().from('user_roles').select('user_id,role,company,dept,updated_at');
+    // Fetch roles including email
+    const {data:roles,error:rErr}=await getSupa().from('user_roles').select('user_id,email,role,company,dept,updated_at');
     if(rErr) throw rErr;
 
-    // Fetch all auth users via admin API (available to authenticated users via RPC workaround)
-    // Since client-side can't list all users, we'll show user_id + allow manual email entry
     const roleMap={};
     (roles||[]).forEach(function(r){ roleMap[r.user_id]=r; });
 
@@ -1528,13 +1546,14 @@ async function renderUsersPage(){
     tbody.innerHTML=roles.map(function(r){
       const updated=r.updated_at?new Date(r.updated_at).toLocaleDateString('en-PH'):'—';
       const isSelf=_currentUser&&r.user_id===_currentUser.id;
+      const displayEmail=r.email||'';
       return '<tr>'
-        +'<td class="mono dim" style="font-size:11px">'+r.user_id.slice(0,12)+'…'+(isSelf?' <span style="font-size:10px;background:var(--green-bg);color:var(--green-text);border-radius:3px;padding:1px 5px">you</span>':'')+'</td>'
+        +'<td style="font-size:12px">'+(r.email||r.user_id.slice(0,16)+'…')+(isSelf?' <span style="font-size:10px;background:var(--green-bg);color:var(--green-text);border-radius:3px;padding:1px 5px">you</span>':'')+'</td>'
         +'<td style="font-weight:500;'+roleColors[r.role]+'">'+roleLabels[r.role]+'</td>'
         +'<td class="dim">'+(r.company||'<span style="color:var(--text3)">All</span>')+'</td>'
         +'<td class="dim">'+(r.dept||'<span style="color:var(--text3)">All Depts</span>')+'</td>'
         +'<td class="dim">'+updated+'</td>'
-        +'<td><button class="btn sm" data-uid="'+r.user_id+'" data-role="'+r.role+'" data-company="'+(r.company||'')+'" data-dept="'+(r.dept||'')+'" onclick="openEditUserRole(this.dataset.uid,this.dataset.role,this.dataset.company,this.dataset.dept)">'+(isSelf?'Edit (you)':'Edit')+'</button></td>'
+        +'<td><button class="btn sm" data-uid="'+r.user_id+'" data-email="'+displayEmail+'" data-role="'+r.role+'" data-company="'+(r.company||'')+'" data-dept="'+(r.dept||'')+'" onclick="openEditUserRole(this.dataset.uid,this.dataset.email,this.dataset.role,this.dataset.company,this.dataset.dept)">'+(isSelf?'Edit (you)':'Edit')+'</button></td>'
         +'</tr>';
     }).join('');
   }catch(err){
@@ -1544,10 +1563,12 @@ async function renderUsersPage(){
 
 function openAddUserRole(){
   _editingUserId=null;
-  document.getElementById('userRoleModalTitle').textContent='Assign Role to User';
+  _editingUserEmail='';
+  document.getElementById('userRoleModalTitle').textContent='Invite & Assign Role';
   document.getElementById('ur_email').value='';
   document.getElementById('ur_email').readOnly=false;
-  document.getElementById('ur_email').placeholder='xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
+  document.getElementById('ur_email').placeholder='user@example.com';
+  document.getElementById('ur_email').type='email';
   document.getElementById('ur_role').value='viewer';
   document.getElementById('ur_company').value='';
   document.getElementById('ur_remove_btn').style.display='none';
@@ -1556,10 +1577,11 @@ function openAddUserRole(){
   document.getElementById('userRoleModal').style.display='flex';
 }
 
-function openEditUserRole(userId, role, company, dept){
+function openEditUserRole(userId, email, role, company, dept){
   _editingUserId=userId;
+  _editingUserEmail=email||'';
   document.getElementById('userRoleModalTitle').textContent='Edit Role';
-  document.getElementById('ur_email').value=userId;
+  document.getElementById('ur_email').value=email||userId;
   document.getElementById('ur_email').readOnly=true;
   document.getElementById('ur_role').value=role;
   document.getElementById('ur_remove_btn').style.display='';
@@ -1580,19 +1602,51 @@ function onRoleSelectChange(){
 function populateDeptSelect(){ /* dept field removed — company only */ }
 
 async function saveUserRole(){
-  const userId=document.getElementById('ur_email').value.trim();
+  const inputVal=document.getElementById('ur_email').value.trim();
   const role=document.getElementById('ur_role').value;
   const company=role==='admin'?null:(document.getElementById('ur_company').value||null);
   const dept=role==='admin'?null:(document.getElementById('ur_dept').value||null);
 
-  if(!userId){ alert('Please enter a User ID.'); return; }
-  const uuidRegex=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if(!uuidRegex.test(userId)){ alert('Invalid User ID format.\nPlease paste the UUID from Supabase → Authentication → Users.\n\nFormat: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'); return; }
+  if(!inputVal){ alert('Please enter an email address.'); return; }
   if(role!=='admin'&&!company){ alert('Please select a company (DW or DDC).'); return; }
 
+  // Adding new user: inputVal is an email address
+  if(!_editingUserId){
+    const emailRegex=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if(!emailRegex.test(inputVal)){ alert('Please enter a valid email address.'); return; }
+    const btn=document.querySelector('#userRoleModal .btn.primary');
+    if(btn){ btn.disabled=true; btn.textContent='Sending invite…'; }
+    try{
+      // Send magic-link / invite email via Supabase
+      const redirectUrl=window.location.origin+window.location.pathname;
+      const {error:invErr}=await getSupa().auth.signInWithOtp({
+        email:inputVal,
+        options:{emailRedirectTo:redirectUrl, shouldCreateUser:true}
+      });
+      if(invErr) throw invErr;
+      // Save pending role with email (user_id will be filled when user logs in via RLS trigger or on first login)
+      // Store as pending_email keyed role — when user first logs in loadUserRole will pick up their actual UUID
+      const {error:roleErr}=await getSupa().from('user_roles').upsert(
+        {user_id:'pending:'+inputVal, email:inputVal, role:role, company:company, dept:dept, updated_at:new Date().toISOString()},
+        {onConflict:'user_id'}
+      );
+      // Non-fatal if role save fails — user can be assigned later
+      document.getElementById('userRoleModal').style.display='none';
+      showToast('✉ Invite sent to '+inputVal+' — role will be assigned when they first log in','success');
+      renderUsersPage();
+    }catch(err){
+      alert('Error sending invite: '+err.message);
+    }finally{
+      const btn=document.querySelector('#userRoleModal .btn.primary');
+      if(btn){ btn.disabled=false; btn.textContent='Save'; }
+    }
+    return;
+  }
+
+  // Editing existing user: _editingUserId is a UUID
   try{
     const {error}=await getSupa().from('user_roles').upsert(
-      {user_id:userId, role:role, company:company, dept:dept, updated_at:new Date().toISOString()},
+      {user_id:_editingUserId, email:_editingUserEmail||inputVal, role:role, company:company, dept:dept, updated_at:new Date().toISOString()},
       {onConflict:'user_id'}
     );
     if(error) throw error;
@@ -4070,8 +4124,8 @@ async function loadAttStoreLocal(){
   </div>
   <div class="modal-body">
     <div class="field" style="margin-bottom:12px">
-      <label>User UUID <span style="font-size:10px;color:var(--text3);font-weight:400">(Supabase → Authentication → Users → UID)</span></label>
-      <input id="ur_email" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:100%;font-family:monospace;font-size:12px" readonly/>
+      <label id="ur_email_label">Email</label>
+      <input id="ur_email" type="email" placeholder="user@example.com" style="width:100%;font-size:13px" readonly/>
     </div>
     <div class="field" style="margin-bottom:12px">
       <label>Role</label>
