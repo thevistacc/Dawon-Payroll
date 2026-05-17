@@ -267,7 +267,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
   <!-- Request Access Panel -->
   <div class="login-box" id="loginBoxSignup" style="display:none">
     <div class="login-logo">Dawon <span>Payroll</span></div>
-    <div class="login-sub">Request account access</div>
+    <div class="login-sub">계정을 만들고 접근 요청을 보냅니다</div>
     <div class="login-err" id="signupErr"></div>
     <div class="login-ok" id="signupOk" style="display:none;background:var(--green-bg);color:var(--green-text);border-radius:var(--radius);padding:8px 12px;font-size:12px;margin-bottom:12px"></div>
     <div class="field" style="margin-bottom:12px">
@@ -279,6 +279,10 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <input id="signupEmail" type="email" placeholder="you@example.com" style="width:100%"/>
     </div>
     <div class="field" style="margin-bottom:12px">
+      <label>Password</label>
+      <input id="signupPw" type="password" placeholder="8자 이상" minlength="8" style="width:100%"/>
+    </div>
+    <div class="field" style="margin-bottom:12px">
       <label>Company</label>
       <select id="signupCompany" style="width:100%">
         <option value="">Select company…</option>
@@ -288,10 +292,11 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     </div>
     <div class="field" style="margin-bottom:16px">
       <label>Department</label>
-      <input id="signupDept" type="text" placeholder="e.g. IRRIGATION" style="width:100%"/>
+      <input id="signupDept" type="text" placeholder="e.g. IRRIGATION" style="width:100%"
+             onkeydown="if(event.key==='Enter')submitSignupRequest()"/>
     </div>
     <button class="btn primary" style="width:100%;height:40px;font-size:14px" onclick="submitSignupRequest()" id="signupBtn">
-      Send Request
+      Sign Up &amp; Request Access
     </button>
     <div style="text-align:center;margin-top:12px">
       <button onclick="showLoginBox()" style="background:none;border:none;font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline">← Back to Sign In</button>
@@ -577,7 +582,12 @@ ALTER TABLE public.pending_invitations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "auth read" ON public.pending_invitations;
 CREATE POLICY "auth read" ON public.pending_invitations FOR SELECT USING (auth.uid() IS NOT NULL);
 DROP POLICY IF EXISTS "auth write" ON public.pending_invitations;
-CREATE POLICY "auth write" ON public.pending_invitations FOR ALL USING (auth.uid() IS NOT NULL);</code>
+CREATE POLICY "auth write" ON public.pending_invitations FOR ALL USING (auth.uid() IS NOT NULL);
+CREATE OR REPLACE FUNCTION public.get_user_id_by_email(user_email text)
+RETURNS uuid LANGUAGE sql SECURITY DEFINER AS $$
+  SELECT id FROM auth.users WHERE email = user_email LIMIT 1;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_user_id_by_email TO authenticated;</code>
     <button onclick="this.parentElement.style.display='none'" style="margin-top:6px;background:none;border:none;font-size:11px;color:var(--amber-text);cursor:pointer;text-decoration:underline">닫기</button>
   </div>
   <div class="tbl-wrap">
@@ -1013,6 +1023,7 @@ function showLoginBox(){
 async function submitSignupRequest(){
   const name    = document.getElementById('signupName').value.trim();
   const email   = document.getElementById('signupEmail').value.trim();
+  const pw      = document.getElementById('signupPw').value;
   const company = document.getElementById('signupCompany').value;
   const dept    = document.getElementById('signupDept').value.trim();
   const errEl = document.getElementById('signupErr');
@@ -1020,25 +1031,38 @@ async function submitSignupRequest(){
   const btn   = document.getElementById('signupBtn');
 
   errEl.style.display='none'; okEl.style.display='none';
-  if(!name||!email){ errEl.textContent='Please enter your name and email.'; errEl.style.display=''; return; }
+  if(!name||!email){ errEl.textContent='이름과 이메일을 입력해주세요.'; errEl.style.display=''; return; }
+  if(!pw||pw.length<8){ errEl.textContent='비밀번호는 8자 이상이어야 합니다.'; errEl.style.display=''; return; }
 
-  btn.disabled=true; btn.textContent='Sending…';
+  btn.disabled=true; btn.textContent='Processing…';
   try{
-    const {error}=await getSupa().from('access_requests').insert({
+    // 1. Supabase auth 계정 생성 (UUID 자동 발급)
+    const {data:authData, error:authErr}=await getSupa().auth.signUp({email, password:pw});
+    if(authErr) throw authErr;
+
+    // 2. access_requests에 요청 저장
+    const {error:reqErr}=await getSupa().from('access_requests').insert({
       name, email, company: company||null, dept: dept||null, status:'pending',
       requested_at: new Date().toISOString()
     });
-    if(error) throw error;
-    okEl.textContent='✓ Request sent! An admin will contact you when your account is ready.';
+    // access_requests 저장 실패는 non-fatal (admin이 나중에 직접 추가 가능)
+
+    okEl.innerHTML='✓ 계정이 생성되었습니다!<br><span style="font-size:11px">Admin 승인 후 로그인 가능합니다. 이메일 인증이 필요한 경우 메일함을 확인하세요.</span>';
     okEl.style.display='';
     document.getElementById('signupName').value='';
     document.getElementById('signupEmail').value='';
+    document.getElementById('signupPw').value='';
     document.getElementById('signupDept').value='';
   }catch(e){
-    errEl.textContent='Error: '+e.message;
+    // 이미 가입된 이메일인 경우
+    if(e.message&&e.message.toLowerCase().includes('already')){
+      errEl.textContent='이미 가입된 이메일입니다. 로그인 화면으로 돌아가세요.';
+    } else {
+      errEl.textContent='오류: '+e.message;
+    }
     errEl.style.display='';
   }
-  btn.disabled=false; btn.textContent='Send Request';
+  btn.disabled=false; btn.textContent='Sign Up & Request Access';
 }
 // ── AUTH ──
 function showForgotPw(){
@@ -1472,25 +1496,29 @@ async function submitApproveRequest(){
   try{
     const now=new Date().toISOString();
 
-    // 이미 가입한 유저인지 확인 (email 컬럼으로 실제 UUID row 탐색)
-    const {data:existingByEmail}=await getSupa().from('user_roles')
-      .select('user_id').eq('email',email).maybeSingle();
+    // RPC로 auth.users에서 이메일 → UUID 조회 (get_user_id_by_email 함수 필요)
+    let realUUID=null;
+    try{
+      const {data:rpcData}=await getSupa().rpc('get_user_id_by_email',{user_email:email});
+      if(rpcData) realUUID=rpcData;
+    }catch(e){}
 
-    if(existingByEmail){
-      // 이미 가입한 유저 → 즉시 role 업데이트
-      await getSupa().from('user_roles').upsert(
-        {user_id:existingByEmail.user_id,email:email,role:role,company:company,dept:_pendingApproveDept||null,updated_at:now},
+    if(realUUID){
+      // 가입된 유저 → user_roles에 즉시 저장
+      const {error:urErr}=await getSupa().from('user_roles').upsert(
+        {user_id:realUUID, email:email, role:role, company:company, dept:_pendingApproveDept||null, updated_at:now},
         {onConflict:'user_id'}
       );
+      if(urErr) throw urErr;
     } else {
-      // 미가입 → pending_invitations 테이블에 저장 (첫 로그인 시 자동 적용)
+      // 미가입 또는 RPC 미설정 → pending_invitations에 저장 (첫 로그인 시 자동 적용)
       await getSupa().from('pending_invitations').upsert(
         {email:email, role:role, company:company, dept:_pendingApproveDept||null, created_at:now},
         {onConflict:'email'}
       );
     }
 
-    // invited row가 있으면 함께 정리 (Invite User로 미리 예약한 경우)
+    // invited row 정리
     await getSupa().from('pending_invitations').delete().eq('email',email);
 
     // access_requests 전부 approved 처리
@@ -1498,7 +1526,10 @@ async function submitApproveRequest(){
 
     writeLog('employee_add',email,'Access approved | role: '+role+(company?' | company: '+company:''));
     document.getElementById('approveModal').style.display='none';
-    showToast('✓ '+email+' — '+role+(company?' ['+company+']':'')+' 승인 완료','success');
+    const msg=realUUID
+      ?'✓ '+email+' — '+role+(company?' ['+company+']':'')+' 승인 완료'
+      :'✓ '+email+' — Role 예약됨. 해당 유저가 로그인 시 자동 적용됩니다.';
+    showToast(msg,'success');
     loadAccessRequests();
     renderUsersPage();
   }catch(e){alert('Error: '+e.message);}
