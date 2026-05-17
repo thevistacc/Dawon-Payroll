@@ -280,7 +280,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     </div>
     <div class="field" style="margin-bottom:12px">
       <label>Password</label>
-      <input id="signupPw" type="password" placeholder="8자 이상" minlength="8" style="width:100%"/>
+      <input id="signupPw" type="password" placeholder="8+ characters" minlength="8" style="width:100%"/>
     </div>
     <div class="field" style="margin-bottom:12px">
       <label>Company</label>
@@ -1001,26 +1001,26 @@ async function submitSignupRequest(){
   const okEl=document.getElementById('signupOk');
   const btn=document.getElementById('signupBtn');
   errEl.style.display='none'; okEl.style.display='none';
-  if(!name||!email){errEl.textContent='이름과 이메일을 입력해주세요.';errEl.style.display='';return;}
-  if(!pw||pw.length<8){errEl.textContent='비밀번호는 8자 이상이어야 합니다.';errEl.style.display='';return;}
-  btn.disabled=true; btn.textContent='처리 중...';
+  if(!name||!email){errEl.textContent='Please enter your name and email.';errEl.style.display='';return;}
+  if(!pw||pw.length<8){errEl.textContent='Password must be at least 8 characters.';errEl.style.display='';return;}
+  btn.disabled=true; btn.textContent='Processing...';
   try{
     const {data:authData,error:authErr}=await getSupa().auth.signUp({email,password:pw});
     if(authErr) throw authErr;
     if(authData.user&&authData.user.identities&&authData.user.identities.length===0)
-      throw new Error('이미 가입된 이메일입니다. 로그인으로 돌아가세요.');
+      throw new Error('This email is already registered. Please sign in.');
     const userId=authData.user&&authData.user.id;
-    if(!userId) throw new Error('UUID 발급 실패. 잠시 후 다시 시도하세요.');
+    if(!userId) throw new Error('Account creation failed. Please try again.');
     const {error:reqErr}=await getSupa().from('access_requests').insert({
       name,email,user_id:userId,company:company||null,dept:dept||null,
       status:'pending',requested_at:new Date().toISOString()
     });
     if(reqErr) throw reqErr;
-    okEl.innerHTML='✓ 가입 요청 완료!<br><span style="font-size:11px">Admin 승인 후 로그인 가능합니다.</span>';
+    okEl.innerHTML='✓ Sign up successful!<br><span style="font-size:11px">You can log in after admin approval.</span>';
     okEl.style.display='';
     ['signupName','signupEmail','signupPw','signupDept'].forEach(function(id){const el=document.getElementById(id);if(el)el.value='';});
   }catch(e){
-    errEl.textContent=e.message||'오류가 발생했습니다.';
+    errEl.textContent=e.message||'An error occurred.';
     errEl.style.display='';
   }
   btn.disabled=false; btn.textContent='Sign Up & Request Access';
@@ -1336,7 +1336,7 @@ async function loadAccessRequests(){
     const {data,error}=await getSupa().from('access_requests')
       .select('*').order('requested_at',{ascending:false});
     if(error) throw error;
-    // 이메일별 최신 요청 하나만, pending인 것만 표시
+    // Show only the latest pending request per email
     const latestByEmail={};
     (data||[]).forEach(function(r){if(!latestByEmail[r.email])latestByEmail[r.email]=r;});
     const display=Object.values(latestByEmail).filter(function(r){return r.status==='pending';});
@@ -1387,27 +1387,27 @@ async function submitApproveRequest(){
   const role=document.getElementById('approve_role').value;
   const company=role==='admin'?null:(document.getElementById('approve_company').value||null);
   const email=_pendingApproveEmail;
-  if(!email){alert('이메일 정보가 없습니다.');return;}
-  if(role!=='admin'&&!company){alert('Company를 선택해주세요.');return;}
+  if(!email){alert('Email not found.');return;}
+  if(role!=='admin'&&!company){alert('Please select a company.');return;}
   try{
     const now=new Date().toISOString();
-    // access_requests에서 UUID 가져오기
+    // Get UUID from access_requests
     const {data:rows}=await getSupa().from('access_requests')
       .select('user_id').eq('email',email).order('requested_at',{ascending:false});
     let uuid=null;
     if(rows){for(const r of rows){if(r.user_id){uuid=r.user_id;break;}}}
-    if(!uuid) throw new Error(email+'의 UUID를 찾을 수 없습니다.\n앱의 "Request Access"로 가입했는지 확인하세요.');
-    // user_roles 저장
+    if(!uuid) throw new Error('UUID not found for '+email+'.\nPlease make sure the user signed up via "Request Access".');
+    // Save to user_roles
     const {error:urErr}=await getSupa().from('user_roles').upsert(
       {user_id:uuid,role:role,company:company,dept:_pendingApproveDept||null,updated_at:now},
       {onConflict:'user_id'}
     );
     if(urErr) throw urErr;
-    // access_requests 승인 처리
+    // Mark access_requests as approved
     await getSupa().from('access_requests').update({status:'approved'}).eq('email',email);
     writeLog('employee_add',email,'Approved | role:'+role+(company?' company:'+company:''));
     document.getElementById('approveModal').style.display='none';
-    showToast('✓ '+email+' — '+role+(company?' ['+company+']':'')+' 승인 완료','success');
+    showToast('✓ '+email+' — '+role+(company?' ['+company+']':'')+' approved','success');
     loadAccessRequests();
     renderUsersPage();
   }catch(e){alert('Error: '+e.message);}
@@ -1562,7 +1562,7 @@ async function saveUserRole(){
     );
     if(error) throw error;
     document.getElementById('userRoleModal').style.display='none';
-    showToast('✓ Role saved — '+role+(company?' ['+company+']':'')+(dept?' · '+dept:''),'success');
+    showToast('✓ Role saved — '+role+(company?' ['+company+']':''),'success');
     renderUsersPage();
   }catch(err){
     alert('Error saving role: '+err.message);
@@ -1738,7 +1738,7 @@ function peso(v){return '₱'+v.toLocaleString('en-PH',{minimumFractionDigits:2,
 // ATTENDANCE CALCULATION
 // ═══════════════════════════════════════
 const STD_H=8, MEAL_BREAK=1;
-const WORK_START_M=8*60; // 07:00~07:59 출근 → 08:00 처리
+const WORK_START_M=8*60; // Clock-in 07:00~07:59 → treated as 08:00
 
 // Round to nearest 0.5h
 function roundHalf(h){ return Math.round(h*2)/2; } // Round to nearest 0.5h
@@ -3851,7 +3851,7 @@ async function loadAttStoreLocal(){
       </div>
     </div>
     <div id="approve_admin_note" style="display:none;margin-top:10px;background:var(--red-bg);color:var(--red-text);border-radius:var(--radius);padding:8px 12px;font-size:12px">
-      ⚠ Admin은 모든 회사·부서에 접근할 수 있습니다.
+      ⚠ Admin has access to ALL companies and ALL departments.
     </div>
   </div>
   <div class="modal-footer">
