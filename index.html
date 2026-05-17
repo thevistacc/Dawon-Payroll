@@ -567,9 +567,18 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     ⚠ <b>초대 기능이 올바르게 동작하려면</b> Supabase → SQL Editor에서 아래 SQL을 한 번 실행하세요:<br>
     <code style="display:block;margin-top:6px;background:var(--surface);padding:6px 10px;border-radius:4px;color:var(--text);font-size:11px;white-space:pre;line-height:1.8">ALTER TABLE public.user_roles ADD COLUMN IF NOT EXISTS email text;
 UPDATE public.user_roles SET email = (SELECT email FROM auth.users WHERE id = user_roles.user_id) WHERE email IS NULL;
-CREATE POLICY IF NOT EXISTS "pending invite readable by auth" ON public.user_roles
-  FOR SELECT USING (user_id LIKE 'pending:%' OR auth.uid() IS NOT NULL);</code>
-    <button onclick="this.closest('[id]').style.display='none'" style="margin-top:6px;background:none;border:none;font-size:11px;color:var(--amber-text);cursor:pointer;text-decoration:underline">닫기</button>
+CREATE TABLE IF NOT EXISTS public.pending_invitations (
+  email text PRIMARY KEY,
+  role text NOT NULL DEFAULT 'viewer',
+  company text, dept text,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE public.pending_invitations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth read" ON public.pending_invitations;
+CREATE POLICY "auth read" ON public.pending_invitations FOR SELECT USING (auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "auth write" ON public.pending_invitations;
+CREATE POLICY "auth write" ON public.pending_invitations FOR ALL USING (auth.uid() IS NOT NULL);</code>
+    <button onclick="this.parentElement.style.display='none'" style="margin-top:6px;background:none;border:none;font-size:11px;color:var(--amber-text);cursor:pointer;text-decoration:underline">닫기</button>
   </div>
   <div class="tbl-wrap">
     <div class="tbl-scroll">
@@ -1348,31 +1357,27 @@ async function loadUserRole(userId){
       if(error){
         console.warn('loadUserRole error:', error.code, error.message, 'attempt:'+(attempt+1));
         if(error.code==='PGRST116'){
-          // Not found by UUID — check if there's a pending invite by email
+          // Not found by UUID — check pending_invitations table
           const userEmail=_currentUser&&_currentUser.email;
           if(userEmail){
-            // Try maybeSingle to avoid throwing on no-row
-            const pendingRes=await getSupa().from('user_roles').select('*').eq('user_id','pending:'+userEmail).maybeSingle();
+            const pendingRes=await getSupa().from('pending_invitations').select('*').eq('email',userEmail).maybeSingle();
             const pending=pendingRes.data;
             if(pending){
               console.log('✓ Found pending invite for', userEmail, '→ role:', pending.role);
-              // Upgrade: write real UUID row
+              // Upgrade: write real UUID row to user_roles
               const upRes=await getSupa().from('user_roles').upsert(
                 {user_id:userId, email:userEmail, role:pending.role, company:pending.company, dept:pending.dept, updated_at:new Date().toISOString()},
                 {onConflict:'user_id'}
               );
               if(!upRes.error){
-                // Delete pending row (best-effort)
-                await getSupa().from('user_roles').delete().eq('user_id','pending:'+userEmail);
+                // Delete from pending_invitations
+                await getSupa().from('pending_invitations').delete().eq('email',userEmail);
               }
               _userRole=pending.role; _userDept=pending.dept||null; _userCompany=pending.company||null;
               console.log('✓ Role set to', _userRole, 'for', userEmail);
               break;
-            } else {
-              console.warn('No pending invite found for', userEmail, '— pendingRes error:', pendingRes.error?.message);
             }
           }
-          // No pending row found → default viewer
           _userRole='viewer'; _userDept=null; _userCompany=null; break;
         }
         if(attempt<1){ await new Promise(function(r){setTimeout(r,1000);}); continue; }
@@ -1471,17 +1476,17 @@ async function submitApproveRequest(){
     const {data:existingByEmail}=await getSupa().from('user_roles')
       .select('user_id').eq('email',email).maybeSingle();
 
-    if(existingByEmail&&!existingByEmail.user_id.startsWith('pending:')){
+    if(existingByEmail){
       // 이미 가입한 유저 → 즉시 role 업데이트
       await getSupa().from('user_roles').upsert(
         {user_id:existingByEmail.user_id,email:email,role:role,company:company,dept:_pendingApproveDept||null,updated_at:now},
         {onConflict:'user_id'}
       );
     } else {
-      // 미가입 → pending:email row 저장 (첫 로그인 시 자동 적용)
-      await getSupa().from('user_roles').upsert(
-        {user_id:'pending:'+email,email:email,role:role,company:company,dept:_pendingApproveDept||null,updated_at:now},
-        {onConflict:'user_id'}
+      // 미가입 → pending_invitations 테이블에 저장 (첫 로그인 시 자동 적용)
+      await getSupa().from('pending_invitations').upsert(
+        {email:email, role:role, company:company, dept:_pendingApproveDept||null, created_at:now},
+        {onConflict:'email'}
       );
     }
 
@@ -1570,9 +1575,10 @@ async function renderUsersPage(){
     const sqlNotice=document.getElementById('users-sql-notice');
     if(sqlNotice) sqlNotice.style.display='none';
 
-    // pending: 초대 대기 row 분리
-    const pendingRows=(roles||[]).filter(function(r){return r.user_id.startsWith('pending:');});
-    const realRoles=(roles||[]).filter(function(r){return !r.user_id.startsWith('pending:');});
+    // pending_invitations 테이블에서 초대 대기 목록 별도 조회
+    const {data:pendingInvites}=await getSupa().from('pending_invitations').select('email,role,company,created_at');
+    const pendingRows=pendingInvites||[];
+    const realRoles=(roles||[]);
     _allUsers=realRoles;
 
     // Metrics (real users only)
@@ -1611,15 +1617,15 @@ async function renderUsersPage(){
 
     // Pending invite rows (아직 가입 안 한 초대)
     const pendingHtml=pendingRows.map(function(r){
-      const invEmail=r.user_id.replace('pending:','');
-      const updated=r.updated_at?new Date(r.updated_at).toLocaleDateString('en-PH'):'—';
+      const invEmail=r.email;
+      const updated=r.created_at?new Date(r.created_at).toLocaleDateString('en-PH'):'—';
       return '<tr style="opacity:.7">'
         +'<td style="font-size:12px;color:var(--text2)">'+invEmail+' <span style="font-size:10px;background:var(--amber-bg);color:var(--amber-text);border-radius:3px;padding:1px 5px">invited</span></td>'
         +'<td style="font-weight:500;'+roleColors[r.role]+'">'+roleLabels[r.role]+'</td>'
         +'<td class="dim">'+(r.company||'<span style="color:var(--text3)">All</span>')+'</td>'
         +'<td class="dim">'+(r.dept||'<span style="color:var(--text3)">All Depts</span>')+'</td>'
         +'<td class="dim">'+updated+'</td>'
-        +'<td><button class="btn sm danger" onclick="cancelInvite(\''+r.user_id+'\')">Cancel</button></td>'
+        +'<td><button class="btn sm danger" onclick="cancelInvite(\''+invEmail+'\')">Cancel</button></td>'
         +'</tr>';
     });
 
@@ -1686,9 +1692,9 @@ async function saveUserRole(){
     const emailRegex=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if(!emailRegex.test(inputVal)){ alert('Please enter a valid email address.'); return; }
     try{
-      const {error:roleErr}=await getSupa().from('user_roles').upsert(
-        {user_id:'pending:'+inputVal, email:inputVal, role:role, company:company, dept:dept, updated_at:new Date().toISOString()},
-        {onConflict:'user_id'}
+      const {error:roleErr}=await getSupa().from('pending_invitations').upsert(
+        {email:inputVal, role:role, company:company, dept:dept, created_at:new Date().toISOString()},
+        {onConflict:'email'}
       );
       if(roleErr) throw roleErr;
       document.getElementById('userRoleModal').style.display='none';
@@ -1721,10 +1727,10 @@ async function saveUserRole(){
   }
 }
 
-async function cancelInvite(pendingUserId){
-  if(!confirm('Cancel this invitation?')) return;
+async function cancelInvite(email){
+  if(!confirm('Cancel invitation for '+email+'?')) return;
   try{
-    const {error}=await getSupa().from('user_roles').delete().eq('user_id',pendingUserId);
+    const {error}=await getSupa().from('pending_invitations').delete().eq('email',email);
     if(error) throw error;
     showToast('Invitation cancelled','info');
     renderUsersPage();
