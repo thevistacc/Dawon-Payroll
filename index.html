@@ -403,7 +403,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <select id="attYear" onchange="onAttPeriodChange()" style="height:34px;font-size:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px"></select>
       <select id="attMonth" onchange="onAttPeriodChange()" style="height:34px;font-size:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px">
         <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option>
-        <option value="4" selected>Apr</option><option value="5">May</option><option value="6">Jun</option>
+        <option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option>
         <option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option>
         <option value="10">Oct</option><option value="11">1Jan</option><option value="12">1Feb</option>
       </select>
@@ -483,7 +483,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
       <select id="payYear" onchange="onPayPeriodChange()" style="height:34px;font-size:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px"></select>
       <select id="payMonth" onchange="onPayPeriodChange()" style="height:34px;font-size:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 10px">
         <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option>
-        <option value="4" selected>Apr</option><option value="5">May</option><option value="6">Jun</option>
+        <option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option>
         <option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option>
         <option value="10">Oct</option><option value="11">1Jan</option><option value="12">1Feb</option>
       </select>
@@ -804,9 +804,14 @@ function getHalfDays(yr, mo, half){
   return {s:16,e:lastDay};
 }
 
-// Current view state
-let curAttYr=2026, curAttMo=4, curAttHalf=2;
-let curPayYr=2026, curPayMo=4, curPayHalf=2;
+// Current view state — default to today's period
+(function(){
+  const _t=new Date(), _y=_t.getFullYear(), _m=_t.getMonth()+1, _h=_t.getDate()<=15?1:2;
+  window.curAttYr=_y; window.curAttMo=_m; window.curAttHalf=_h;
+  window.curPayYr=_y; window.curPayMo=_m; window.curPayHalf=_h;
+})();
+let curAttYr=window.curAttYr, curAttMo=window.curAttMo, curAttHalf=window.curAttHalf;
+let curPayYr=window.curPayYr, curPayMo=window.curPayMo, curPayHalf=window.curPayHalf;
 
 // Load/save attendance store from storage
 // ═══════════════════════════════════════
@@ -3770,13 +3775,21 @@ function showToast(msg, type){
 document.addEventListener('DOMContentLoaded',async()=>{
   // Populate year selects
   const curY=new Date().getFullYear();
+  const _today=new Date(), _todayMo=_today.getMonth()+1, _todayHalf=_today.getDate()<=15?1:2;
   ['attYear','payYear'].forEach(function(id){
     const sel=document.getElementById(id);
     for(let y=curY-1;y<=curY+1;y++){
       const o=document.createElement('option');
-      o.value=y; o.textContent=y; if(y===2026)o.selected=true;
+      o.value=y; o.textContent=y; if(y===curY)o.selected=true;
       sel.appendChild(o);
     }
+  });
+  // Set month & half selects to current period
+  ['attMonth','payMonth'].forEach(function(id){
+    document.getElementById(id).value=_todayMo;
+  });
+  ['attHalf','payHalf'].forEach(function(id){
+    document.getElementById(id).value=_todayHalf;
   });
 
   // Check if Supabase is configured
