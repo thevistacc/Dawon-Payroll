@@ -569,25 +569,24 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
   </div>
   <div class="metrics" id="users-metrics"></div>
   <div id="users-sql-notice" style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--amber-text);margin-bottom:12px">
-    ⚠ <b>초대 기능이 올바르게 동작하려면</b> Supabase → SQL Editor에서 아래 SQL을 한 번 실행하세요:<br>
-    <code style="display:block;margin-top:6px;background:var(--surface);padding:6px 10px;border-radius:4px;color:var(--text);font-size:11px;white-space:pre;line-height:1.8">ALTER TABLE public.user_roles ADD COLUMN IF NOT EXISTS email text;
+    ⚠ <b>초대/승인 기능을 위해</b> Supabase → SQL Editor에서 아래 SQL을 한 번 실행하세요:<br>
+    <code style="display:block;margin-top:6px;background:var(--surface);padding:6px 10px;border-radius:4px;color:var(--text);font-size:11px;white-space:pre;line-height:1.8">-- 1. user_roles에 email 컬럼 추가
+ALTER TABLE public.user_roles ADD COLUMN IF NOT EXISTS email text;
 UPDATE public.user_roles SET email = (SELECT email FROM auth.users WHERE id = user_roles.user_id) WHERE email IS NULL;
+
+-- 2. access_requests에 user_id 컬럼 추가 (가입 시 UUID 저장용)
+ALTER TABLE public.access_requests ADD COLUMN IF NOT EXISTS user_id uuid;
+
+-- 3. 초대 대기 테이블
 CREATE TABLE IF NOT EXISTS public.pending_invitations (
-  email text PRIMARY KEY,
-  role text NOT NULL DEFAULT 'viewer',
-  company text, dept text,
-  created_at timestamptz DEFAULT now()
+  email text PRIMARY KEY, role text NOT NULL DEFAULT 'viewer',
+  company text, dept text, created_at timestamptz DEFAULT now()
 );
 ALTER TABLE public.pending_invitations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "auth read" ON public.pending_invitations;
 CREATE POLICY "auth read" ON public.pending_invitations FOR SELECT USING (auth.uid() IS NOT NULL);
 DROP POLICY IF EXISTS "auth write" ON public.pending_invitations;
-CREATE POLICY "auth write" ON public.pending_invitations FOR ALL USING (auth.uid() IS NOT NULL);
-CREATE OR REPLACE FUNCTION public.get_user_id_by_email(user_email text)
-RETURNS uuid LANGUAGE sql SECURITY DEFINER AS $$
-  SELECT id FROM auth.users WHERE email = user_email LIMIT 1;
-$$;
-GRANT EXECUTE ON FUNCTION public.get_user_id_by_email TO authenticated;</code>
+CREATE POLICY "auth write" ON public.pending_invitations FOR ALL USING (auth.uid() IS NOT NULL);</code>
     <button onclick="this.parentElement.style.display='none'" style="margin-top:6px;background:none;border:none;font-size:11px;color:var(--amber-text);cursor:pointer;text-decoration:underline">닫기</button>
   </div>
   <div class="tbl-wrap">
@@ -1036,26 +1035,38 @@ async function submitSignupRequest(){
 
   btn.disabled=true; btn.textContent='Processing…';
   try{
-    // 1. Supabase auth 계정 생성 (UUID 자동 발급)
+    // 1. Supabase auth 계정 생성
     const {data:authData, error:authErr}=await getSupa().auth.signUp({email, password:pw});
     if(authErr) throw authErr;
 
-    // 2. access_requests에 요청 저장
-    const {error:reqErr}=await getSupa().from('access_requests').insert({
-      name, email, company: company||null, dept: dept||null, status:'pending',
+    // identities가 비어있으면 이미 가입된 이메일 (Supabase 이메일 확인 비활성화 시)
+    if(authData.user && authData.user.identities && authData.user.identities.length===0){
+      errEl.textContent='이미 가입된 이메일입니다. 로그인 화면으로 돌아가세요.';
+      errEl.style.display='';
+      btn.disabled=false; btn.textContent='Sign Up & Request Access';
+      return;
+    }
+
+    const userId=authData.user&&authData.user.id;
+
+    // 2. access_requests에 UUID 포함해서 저장
+    await getSupa().from('access_requests').insert({
+      name, email,
+      user_id: userId||null,
+      company: company||null,
+      dept: dept||null,
+      status:'pending',
       requested_at: new Date().toISOString()
     });
-    // access_requests 저장 실패는 non-fatal (admin이 나중에 직접 추가 가능)
 
-    okEl.innerHTML='✓ 계정이 생성되었습니다!<br><span style="font-size:11px">Admin 승인 후 로그인 가능합니다. 이메일 인증이 필요한 경우 메일함을 확인하세요.</span>';
+    okEl.innerHTML='✓ 가입 요청이 완료되었습니다!<br><span style="font-size:11px">Admin 승인 후 로그인 가능합니다.</span>';
     okEl.style.display='';
     document.getElementById('signupName').value='';
     document.getElementById('signupEmail').value='';
     document.getElementById('signupPw').value='';
     document.getElementById('signupDept').value='';
   }catch(e){
-    // 이미 가입된 이메일인 경우
-    if(e.message&&e.message.toLowerCase().includes('already')){
+    if(e.message&&(e.message.toLowerCase().includes('already')||e.message.toLowerCase().includes('registered'))){
       errEl.textContent='이미 가입된 이메일입니다. 로그인 화면으로 돌아가세요.';
     } else {
       errEl.textContent='오류: '+e.message;
@@ -1496,22 +1507,20 @@ async function submitApproveRequest(){
   try{
     const now=new Date().toISOString();
 
-    // RPC로 auth.users에서 이메일 → UUID 조회
-    const {data:rpcData, error:rpcErr}=await getSupa().rpc('get_user_id_by_email',{user_email:email});
+    // access_requests에서 이 이메일의 user_id(UUID) 가져오기
+    const {data:reqRow}=await getSupa().from('access_requests')
+      .select('user_id').eq('email',email).not('user_id','is',null)
+      .order('requested_at',{ascending:false}).limit(1).maybeSingle();
 
-    if(rpcErr){
-      // RPC 함수가 없는 경우 안내
-      throw new Error('get_user_id_by_email RPC 함수가 없습니다.\nSupabase SQL Editor에서 Users 페이지 상단 안내 SQL을 실행해주세요.');
+    const realUUID=reqRow&&reqRow.user_id;
+
+    if(!realUUID){
+      throw new Error(email+' 계정의 UUID를 찾을 수 없습니다.\n\n해당 사용자가 앱의 "Request Access"로 가입했는지 확인하세요.\n(Supabase 대시보드에서 직접 생성한 계정은 UUID가 없습니다)');
     }
 
-    if(!rpcData){
-      // 가입된 계정 없음
-      throw new Error(email+'\n\n아직 가입하지 않은 이메일입니다.\n해당 사용자에게 앱에서 "Request Access"로 가입하도록 안내하세요.');
-    }
-
-    // UUID 확인 → user_roles에 즉시 저장
+    // user_roles에 저장
     const {error:urErr}=await getSupa().from('user_roles').upsert(
-      {user_id:rpcData, email:email, role:role, company:company, dept:_pendingApproveDept||null, updated_at:now},
+      {user_id:realUUID, email:email, role:role, company:company, dept:_pendingApproveDept||null, updated_at:now},
       {onConflict:'user_id'}
     );
     if(urErr) throw urErr;
