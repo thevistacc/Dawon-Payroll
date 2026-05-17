@@ -1496,29 +1496,27 @@ async function submitApproveRequest(){
   try{
     const now=new Date().toISOString();
 
-    // RPC로 auth.users에서 이메일 → UUID 조회 (get_user_id_by_email 함수 필요)
-    let realUUID=null;
-    try{
-      const {data:rpcData}=await getSupa().rpc('get_user_id_by_email',{user_email:email});
-      if(rpcData) realUUID=rpcData;
-    }catch(e){}
+    // RPC로 auth.users에서 이메일 → UUID 조회
+    const {data:rpcData, error:rpcErr}=await getSupa().rpc('get_user_id_by_email',{user_email:email});
 
-    if(realUUID){
-      // 가입된 유저 → user_roles에 즉시 저장
-      const {error:urErr}=await getSupa().from('user_roles').upsert(
-        {user_id:realUUID, email:email, role:role, company:company, dept:_pendingApproveDept||null, updated_at:now},
-        {onConflict:'user_id'}
-      );
-      if(urErr) throw urErr;
-    } else {
-      // 미가입 또는 RPC 미설정 → pending_invitations에 저장 (첫 로그인 시 자동 적용)
-      await getSupa().from('pending_invitations').upsert(
-        {email:email, role:role, company:company, dept:_pendingApproveDept||null, created_at:now},
-        {onConflict:'email'}
-      );
+    if(rpcErr){
+      // RPC 함수가 없는 경우 안내
+      throw new Error('get_user_id_by_email RPC 함수가 없습니다.\nSupabase SQL Editor에서 Users 페이지 상단 안내 SQL을 실행해주세요.');
     }
 
-    // invited row 정리
+    if(!rpcData){
+      // 가입된 계정 없음
+      throw new Error(email+'\n\n아직 가입하지 않은 이메일입니다.\n해당 사용자에게 앱에서 "Request Access"로 가입하도록 안내하세요.');
+    }
+
+    // UUID 확인 → user_roles에 즉시 저장
+    const {error:urErr}=await getSupa().from('user_roles').upsert(
+      {user_id:rpcData, email:email, role:role, company:company, dept:_pendingApproveDept||null, updated_at:now},
+      {onConflict:'user_id'}
+    );
+    if(urErr) throw urErr;
+
+    // pending_invitations 정리
     await getSupa().from('pending_invitations').delete().eq('email',email);
 
     // access_requests 전부 approved 처리
@@ -1526,10 +1524,7 @@ async function submitApproveRequest(){
 
     writeLog('employee_add',email,'Access approved | role: '+role+(company?' | company: '+company:''));
     document.getElementById('approveModal').style.display='none';
-    const msg=realUUID
-      ?'✓ '+email+' — '+role+(company?' ['+company+']':'')+' 승인 완료'
-      :'✓ '+email+' — Role 예약됨. 해당 유저가 로그인 시 자동 적용됩니다.';
-    showToast(msg,'success');
+    showToast('✓ '+email+' — '+role+(company?' ['+company+']':'')+' 승인 완료','success');
     loadAccessRequests();
     renderUsersPage();
   }catch(e){alert('Error: '+e.message);}
