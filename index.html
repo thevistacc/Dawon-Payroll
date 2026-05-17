@@ -1623,7 +1623,8 @@ async function renderUsersPage(){
 function openAddUserRole(){
   _editingUserId=null;
   _editingUserEmail='';
-  document.getElementById('userRoleModalTitle').textContent='Invite & Assign Role';
+  document.getElementById('userRoleModalTitle').textContent='Invite User';
+  document.getElementById('ur_invite_notice').style.display='';
   document.getElementById('ur_email').value='';
   document.getElementById('ur_email').readOnly=false;
   document.getElementById('ur_email').placeholder='user@example.com';
@@ -1640,6 +1641,7 @@ function openEditUserRole(userId, email, role, company, dept){
   _editingUserId=userId;
   _editingUserEmail=email||'';
   document.getElementById('userRoleModalTitle').textContent='Edit Role';
+  document.getElementById('ur_invite_notice').style.display='none';
   document.getElementById('ur_email').value=email||userId;
   document.getElementById('ur_email').readOnly=true;
   document.getElementById('ur_role').value=role;
@@ -1669,35 +1671,28 @@ async function saveUserRole(){
   if(!inputVal){ alert('Please enter an email address.'); return; }
   if(role!=='admin'&&!company){ alert('Please select a company (DW or DDC).'); return; }
 
-  // Adding new user: inputVal is an email address
+  // Adding new user: save pending role — no email sent
+  // User signs up themselves via "Request Access" on the login screen
   if(!_editingUserId){
     const emailRegex=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if(!emailRegex.test(inputVal)){ alert('Please enter a valid email address.'); return; }
-    const btn=document.querySelector('#userRoleModal .btn.primary');
-    if(btn){ btn.disabled=true; btn.textContent='Sending invite…'; }
     try{
-      // Send magic-link / invite email via Supabase
-      const redirectUrl=window.location.origin+window.location.pathname;
-      const {error:invErr}=await getSupa().auth.signInWithOtp({
-        email:inputVal,
-        options:{emailRedirectTo:redirectUrl, shouldCreateUser:true}
-      });
-      if(invErr) throw invErr;
-      // Save pending role with email (user_id will be filled when user logs in via RLS trigger or on first login)
-      // Store as pending_email keyed role — when user first logs in loadUserRole will pick up their actual UUID
       const {error:roleErr}=await getSupa().from('user_roles').upsert(
         {user_id:'pending:'+inputVal, email:inputVal, role:role, company:company, dept:dept, updated_at:new Date().toISOString()},
         {onConflict:'user_id'}
       );
-      // Non-fatal if role save fails — user can be assigned later
+      if(roleErr) throw roleErr;
       document.getElementById('userRoleModal').style.display='none';
-      showToast('✉ Invite sent to '+inputVal+' — role will be assigned when they first log in','success');
+      // Show instructions to tell the user to sign up
+      const appUrl=window.location.origin+window.location.pathname;
+      showToast('✓ Role reserved for '+inputVal, 'success');
+      setTimeout(function(){
+        alert('Role reserved for '+inputVal+' as '+role+(company?' ['+company+']':'')+'.\n\n'
+          +'이제 해당 사용자에게 아래 앱 주소를 알려주고\n"Request Access"로 가입하도록 안내하세요:\n\n'+appUrl);
+      }, 300);
       renderUsersPage();
     }catch(err){
-      alert('Error sending invite: '+err.message);
-    }finally{
-      const btn=document.querySelector('#userRoleModal .btn.primary');
-      if(btn){ btn.disabled=false; btn.textContent='Save'; }
+      alert('Error saving role: '+err.message);
     }
     return;
   }
@@ -4192,6 +4187,11 @@ async function loadAttStoreLocal(){
     <button class="modal-close" onclick="document.getElementById('userRoleModal').style.display='none'">✕</button>
   </div>
   <div class="modal-body">
+    <div id="ur_invite_notice" style="display:none;background:var(--blue-bg);color:var(--blue-text);border-radius:var(--radius);padding:9px 12px;font-size:12px;margin-bottom:12px;line-height:1.6">
+      이메일을 입력하고 저장하면 해당 이메일에 Role이 예약됩니다.<br>
+      사용자에게 앱 주소를 알려주고 <b>"Request Access"</b>로 가입하도록 안내하세요.<br>
+      가입 후 첫 로그인 시 지정한 Role이 자동 적용됩니다.
+    </div>
     <div class="field" style="margin-bottom:12px">
       <label id="ur_email_label">Email</label>
       <input id="ur_email" type="email" placeholder="user@example.com" style="width:100%;font-size:13px" readonly/>
