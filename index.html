@@ -71,10 +71,11 @@ select{padding-right:28px;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 /* TABLE */
 .tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
 .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.sticky-name{position:sticky;left:0;z-index:2;background:var(--surface)}
-.sticky-dept{position:sticky;left:140px;z-index:2;background:var(--surface)}
-.sticky-detail{position:sticky;right:0;z-index:2;background:var(--surface)}
-th.sticky-name,th.sticky-dept,th.sticky-detail{z-index:3}
+.sticky-name{position:sticky;left:0;z-index:2;background:var(--surface);min-width:130px;max-width:130px;white-space:normal;word-break:break-word;box-shadow:1px 0 0 var(--border)}
+.sticky-dept{position:sticky;left:130px;z-index:2;background:var(--surface);min-width:120px;max-width:120px;white-space:normal;word-break:break-word;box-shadow:1px 0 0 var(--border)}
+.sticky-days{position:sticky;left:250px;z-index:2;background:var(--surface);min-width:38px;box-shadow:2px 0 4px rgba(0,0,0,.06)}
+.sticky-detail{position:sticky;right:0;z-index:2;background:var(--surface);white-space:nowrap;box-shadow:-2px 0 4px rgba(0,0,0,.06)}
+th.sticky-name,th.sticky-dept,th.sticky-days,th.sticky-detail{z-index:3}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead th{background:var(--surface2);font-weight:500;padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.3px}
 th.r,td.r{text-align:right}
@@ -459,7 +460,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
         <tr>
           <th rowspan="2" class="sticky-name">Name</th>
           <th rowspan="2" class="sticky-dept">Department</th>
-          <th rowspan="2" class="r">Days</th>
+          <th rowspan="2" class="r sticky-days">Days</th>
           <th id="attDateColspan" colspan="15" style="text-align:center;border-bottom:0.5px solid var(--border)">Daily Hours</th>
           <th rowspan="2" class="r" style="min-width:52px;border-left:2px solid var(--border2)">Total<br>Hours</th>
           <th rowspan="2" class="r">OT h</th>
@@ -534,7 +535,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     <div class="tbl-scroll">
     <table>
       <thead><tr>
-        <th class="sticky-name">Name</th><th class="sticky-dept">Department</th><th>Type</th>
+        <th class="sticky-name">Name</th><th class="sticky-dept">Department</th><th style="min-width:36px">Type</th>
         <th class="r">Daily Rate(₱)</th>
         <th class="r">Basic Pay</th>
         <th class="r">OT Pay</th>
@@ -550,7 +551,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
         <th class="r">WHT</th>
         <th class="r">Deductions</th>
         <th class="r" style="color:var(--green)">Net Pay</th>
-        <th></th>
+        <th class="sticky-detail"></th>
       </tr></thead>
       <tbody id="payBody"></tbody>
     </table>
@@ -1771,7 +1772,7 @@ function calcDayHoursForDate(year, month, day, ti, to){
 
 
 
-function processAtt(att, year, month, startDay, endDay){
+function processAtt(att, year, month, startDay, endDay, workStartM){
   // year/month/startDay/endDay are optional; default = 2026/4/16-30
   const yr=year||2026, mo=month||4;
   const s=startDay||16, e=endDay||30;
@@ -1785,8 +1786,7 @@ function processAtt(att, year, month, startDay, endDay){
   for(const d of allDays){
     const a=att.a[String(d)];
     if(a&&a.i){
-      const wsM=emp&&emp.workStart?toMins(emp.workStart):null;
-      const r=calcDayHoursForDate(yr,mo,d,a.i,a.o,wsM);
+      const r=calcDayHoursForDate(yr,mo,d,a.i,a.o,workStartM);
       dayDetail[d]=r;
       if(r){
         workedDays++;
@@ -2305,7 +2305,7 @@ function renderAtt(){
     const totalH=(e.regH+e.rhH+e.snwhH+e.swhH+e.otH);
     return '<tr>'
       +'<td class="name sticky-name">'+e.n+'</td><td class="dim sticky-dept">'+e.d+'</td>'
-      +'<td class="r">'+e.workedDays+'</td>'
+      +'<td class="r sticky-days">'+e.workedDays+'</td>'
       +dayCells
       +'<td class="r" style="font-weight:600;border-left:2px solid var(--border2)">'+totalH.toFixed(1)+'</td>'
       +'<td class="r" style="'+(e.otH>0?'color:var(--amber)':'')+'">'+(e.otH>0?e.otH.toFixed(1):'—')+'</td>'
@@ -2691,12 +2691,11 @@ function getAttProcessed(yr, mo, half){
   const {s,e}=getHalfDays(yr,mo,half);
   const raw=getAttForPeriod(yr,mo,half);
   _attCache[k]=raw.map(function(a){
-    const processed=processAtt(a,yr,mo,s,e);
-    // Inject company from employee profile if not set on attendance record
-    if(!processed.company){
-      const emp=employees.find(function(em){ return nameMatch(em.name, a.n); });
-      if(emp&&emp.company) processed.company=emp.company;
-    }
+    const emp=employees.find(function(em){ return nameMatch(em.name, a.n); });
+    const wsM=emp&&emp.workStart?toMins(emp.workStart):null;
+    const processed=processAtt(a,yr,mo,s,e,wsM);
+    // Inject company from employee profile
+    if(!processed.company&&emp&&emp.company) processed.company=emp.company;
     return processed;
   });
   return _attCache[k];
@@ -2754,7 +2753,7 @@ function renderPay(){
       <td class="r dim">${peso(e.wht)}</td>
       <td class="r" style="color:var(--red)">${peso(e.totalDeduct)}</td>
       <td class="r" style="color:var(--green);font-weight:600">${peso(e.netPay)}</td>
-      <td><button class="btn sm" onclick="showPayDetail('${e.name}')"> employees Payslip</button></td>
+      <td class="sticky-detail"><button class="btn sm" onclick="showPayDetail('${e.name}')">Payslip</button></td>
     </tr>`;
   }).join('');
   renderPager('payPager', payPage, totalP, n=>{payPage=n;renderPay()}, total);
