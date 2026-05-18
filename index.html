@@ -71,6 +71,10 @@ select{padding-right:28px;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 /* TABLE */
 .tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
 .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.sticky-name{position:sticky;left:0;z-index:2;background:var(--surface)}
+.sticky-dept{position:sticky;left:140px;z-index:2;background:var(--surface)}
+.sticky-detail{position:sticky;right:0;z-index:2;background:var(--surface)}
+th.sticky-name,th.sticky-dept,th.sticky-detail{z-index:3}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead th{background:var(--surface2);font-weight:500;padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.3px}
 th.r,td.r{text-align:right}
@@ -453,8 +457,8 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     <table>
       <thead>
         <tr>
-          <th rowspan="2">Name</th>
-          <th rowspan="2">Department</th>
+          <th rowspan="2" class="sticky-name">Name</th>
+          <th rowspan="2" class="sticky-dept">Department</th>
           <th rowspan="2" class="r">Days</th>
           <th id="attDateColspan" colspan="15" style="text-align:center;border-bottom:0.5px solid var(--border)">Daily Hours</th>
           <th rowspan="2" class="r" style="min-width:52px;border-left:2px solid var(--border2)">Total<br>Hours</th>
@@ -463,7 +467,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
           <th rowspan="2" class="r" style="color:var(--amber)">Sunday<br>OT h</th>
           <th rowspan="2" class="r">Night h</th>
           <th rowspan="2" class="r">Absent</th>
-          <th rowspan="2"></th>
+          <th rowspan="2" class="sticky-detail"></th>
         </tr>
         <tr id="attDateHeader"></tr>
       </thead>
@@ -530,7 +534,7 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
     <div class="tbl-scroll">
     <table>
       <thead><tr>
-        <th>Name</th><th>Department</th><th>Type</th>
+        <th class="sticky-name">Name</th><th class="sticky-dept">Department</th><th>Type</th>
         <th class="r">Daily Rate(₱)</th>
         <th class="r">Basic Pay</th>
         <th class="r">OT Pay</th>
@@ -696,7 +700,8 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
           <option value="saturday">Saturday</option>
         </select>
       </div>
-      <div class="field span2"><label>Hire Date</label><input id="f_hire" type="date"/></div>
+      <div class="field"><label>Hire Date</label><input id="f_hire" type="date"/></div>
+      <div class="field"><label>Work Start Time <span style="font-size:10px;color:var(--text3)">(default 08:00)</span></label><input id="f_workstart" type="time" value="08:00"/></div>
     </div>
   </div>
   <div class="modal-footer">
@@ -718,12 +723,11 @@ thead tr:nth-child(2) th{font-size:10px;font-weight:500;padding:4px 6px}
 </div>
 </div>
 
-<!-- Attendance Detail Modal -->
-<div id="attModal" class="overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+<!-- Attendance Detail Panel (side panel) -->
+<div id="attModal" style="display:none;position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:200;overflow-y:auto;box-shadow:-4px 0 24px rgba(0,0,0,.15);flex-direction:column" onclick="">
 <div class="modal" style="max-width:660px">
-  <div class="modal-header"><h3 id="attModalTitle">Attendance Detail</h3><button class="modal-close" onclick="document.getElementById('attModal').style.display='none'">✕</button></div>
-  <div class="modal-body" id="attModalBody"></div>
-  <div class="modal-footer"><button class="btn" onclick="document.getElementById('attModal').style.display='none'">Close</button></div>
+  <div style="padding:16px 20px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);margin-bottom:0;position:sticky;top:0;background:var(--surface);z-index:1"><h3 id="attModalTitle" style="font-size:14px;margin:0 0 12px">Attendance Detail</h3><button class="modal-close" onclick="document.getElementById('attModal').style.display='none'">✕</button></div>
+  <div style="padding:16px 20px;flex:1" id="attModalBody"></div>
 </div>
 </div>
 
@@ -1741,7 +1745,7 @@ const STD_H=8, MEAL_BREAK=1;
 const WORK_START_M=8*60; // Clock-in 07:00~07:59 → treated as 08:00
 
 // Round to nearest 0.5h
-function roundHalf(h){ return Math.round(h*2)/2; } // Round to nearest 0.5h
+function roundHalf(h){ const v=h*2; return (v%1===0.5?Math.floor(v):Math.round(v))/2; } // x.5 rounds down
 
 // Dynamic version used by processAtt
 function calcDayHoursForDate(year, month, day, ti, to){
@@ -1781,7 +1785,8 @@ function processAtt(att, year, month, startDay, endDay){
   for(const d of allDays){
     const a=att.a[String(d)];
     if(a&&a.i){
-      const r=calcDayHoursForDate(yr,mo,d,a.i,a.o);
+      const wsM=emp&&emp.workStart?toMins(emp.workStart):null;
+      const r=calcDayHoursForDate(yr,mo,d,a.i,a.o,wsM);
       dayDetail[d]=r;
       if(r){
         workedDays++;
@@ -2105,6 +2110,7 @@ function openEmpAdd(){
   document.getElementById('f_type').value='contractual';
   document.getElementById('f_restday').value='sunday';
   document.getElementById('f_company').value=_userCompany||'';
+  document.getElementById('f_workstart').value='08:00';
   document.getElementById('empModal').style.display='flex';
 }
 function openEmpEdit(uid){
@@ -2121,6 +2127,7 @@ function openEmpEdit(uid){
   document.getElementById('f_restday').value=e.restday||'sunday';
   document.getElementById('f_hire').value=e.hireDate||'';
   document.getElementById('f_company').value=e.company||'';
+  document.getElementById('f_workstart').value=e.workStart||'08:00';
   document.getElementById('empModal').style.display='flex';
 }
 function closeEmpModal(){document.getElementById('empModal').style.display='none';}
@@ -2145,7 +2152,8 @@ function saveEmp(){
     rate:parseFloat(document.getElementById('f_rate').value)||0,
     allowance:parseFloat(document.getElementById('f_allowance').value)||0,
     type:document.getElementById('f_type').value,restday:document.getElementById('f_restday').value,
-    hireDate:document.getElementById('f_hire').value};
+    hireDate:document.getElementById('f_hire').value,
+    workStart:document.getElementById('f_workstart').value||'08:00'};
   if(editingNo!==null){
     const i=employees.findIndex(e=>e.uid===editingNo);
     const _oldE=employees[i]?Object.assign({},employees[i]):null;
@@ -2296,7 +2304,7 @@ function renderAtt(){
     }).join('');
     const totalH=(e.regH+e.rhH+e.snwhH+e.swhH+e.otH);
     return '<tr>'
-      +'<td class="name">'+e.n+'</td><td class="dim">'+e.d+'</td>'
+      +'<td class="name sticky-name">'+e.n+'</td><td class="dim sticky-dept">'+e.d+'</td>'
       +'<td class="r">'+e.workedDays+'</td>'
       +dayCells
       +'<td class="r" style="font-weight:600;border-left:2px solid var(--border2)">'+totalH.toFixed(1)+'</td>'
@@ -2305,7 +2313,7 @@ function renderAtt(){
       +'<td class="r" style="color:var(--amber)">'+(e.sunOtH>0?e.sunOtH.toFixed(1):'—')+'</td>'
       +'<td class="r" style="'+(e.ndH>0?'color:var(--blue)':'')+'">'+(e.ndH>0?e.ndH.toFixed(1):'—')+'</td>'
       +'<td class="r" style="'+(e.absent>6?'color:var(--red)':'')+'">'+e.absent+'</td>'
-      +'<td><button class="btn sm" onclick="showAttDetail('+e.id+','+yr+','+mo+','+half+')">Detail</button></td></tr>';
+      +'<td class="sticky-detail"><button class="btn sm" onclick="showAttDetail('+e.id+','+yr+','+mo+','+half+')">Detail</button></td></tr>';
   }).join('');
   renderPager('attPager', attPage, totalP, n=>{attPage=n;renderAtt()}, total);
 }
@@ -2354,12 +2362,14 @@ function showAttDetail(id, yr, mo, half){
     return '<tr class="edit-row '+rowCls+'" data-day="'+d+'">'
       +'<td style="font-size:12px;font-weight:500;min-width:32px">'+d+'</td>'
       +'<td style="font-size:11px;color:var(--text2)">'+dow+typeTag+'</td>'
-      +'<td><input class="time-inp" id="ei_'+d+'_in" type="time" value="'+inVal+'" '
+      +'<td style="white-space:nowrap"><input class="time-inp" id="ei_'+d+'_in" type="time" value="'+inVal+'" '
         +'oninput="onTimeEdit('+id+','+d+','+yr+','+mo+','+half+')" '
-        +'placeholder="--:--"/></td>'
-      +'<td><input class="time-inp" id="ei_'+d+'_out" type="time" value="'+outVal+'" '
+        +'style="width:90px" placeholder="--:--"/>'
+        +(inVal?'<span style="font-size:10px;color:var(--text3);margin-left:2px">'+(parseInt(inVal)<12?'AM':'PM')+'</span>':'')+'</td>'
+      +'<td style="white-space:nowrap"><input class="time-inp" id="ei_'+d+'_out" type="time" value="'+outVal+'" '
         +'oninput="onTimeEdit('+id+','+d+','+yr+','+mo+','+half+')" '
-        +'placeholder="--:--"/></td>'
+        +'style="width:90px" placeholder="--:--"/>'
+        +(outVal?'<span style="font-size:10px;color:var(--text3);margin-left:2px">'+(parseInt(outVal)<12?'AM':'PM')+'</span>':'')+'</td>'
       +'<td class="calc-cell" id="ec_'+d+'_w">'+workedStr+noOutMark+'</td>'
       +'<td class="calc-cell" id="ec_'+d+'_r">'+regStr+'</td>'
       +'<td class="calc-cell" style="color:'+(r&&r.ot>0?'var(--amber)':'var(--text3)') +'" id="ec_'+d+'_ot">'+otStr+'</td>'
@@ -2402,7 +2412,7 @@ function showAttDetail(id, yr, mo, half){
       <button class="btn primary" onclick="applyAttUpdate(${id},${yr},${mo},${half})">✔ Update</button>
     </div>`;
 
-  document.getElementById('attModal').style.display='flex';
+  const am=document.getElementById('attModal'); am.style.display='flex'; am.style.flexDirection='column';
 }
 
 // Called on every time input change — update computed cells live
@@ -2416,7 +2426,9 @@ function onTimeEdit(empId, day, yr, mo, half){
   inEl.classList.toggle('modified', !!ti);
   outEl.classList.toggle('modified', !!to);
 
-  const r=ti ? calcDayHoursForDate(yr,mo,day,ti,to) : null;
+  const empObj=employees.find(function(e){return e.id===String(empId)||e.uid===String(empId)||e.no===empId;});
+  const wsM=empObj&&empObj.workStart?toMins(empObj.workStart):null;
+  const r=ti ? calcDayHoursForDate(yr,mo,day,ti,to,wsM) : null;
 
   const wEl=document.getElementById('ec_'+day+'_w');
   const rEl=document.getElementById('ec_'+day+'_r');
@@ -2717,8 +2729,8 @@ function renderPay(){
   document.getElementById('payBody').innerHTML=slice.map(e=>{
     const noData=e._noAtt;
     return `<tr style="${noData?'opacity:.5':''}">
-      <td class="name">${e.name}</td>
-      <td class="dim">${e.dept}</td>
+      <td class="name sticky-name">${e.name}</td>
+      <td class="dim sticky-dept">${e.dept}</td>
       <td><span class="badge ${e.type==='regular'?'reg':'con'}">${e.type==='regular'?'R':'C'}</span></td>
       <td class="r" style="font-weight:500${e._effectiveRate&&e._effectiveRate!==e.rate?';color:var(--amber)':''}">
         ₱${(e._effectiveRate||e.rate).toLocaleString()}${e._effectiveRate&&e._effectiveRate!==e.rate?'<span title="Original rate: ₱'+e.rate.toLocaleString()+'">↑</span>':''}
@@ -4074,5 +4086,3 @@ async function loadAttStoreLocal(){
 
 </body>
 </html>
-
- 
